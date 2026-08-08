@@ -11,7 +11,8 @@
       ],
       "@trading-auto/test-helpers": ["./packages/test-helpers/src/index.ts"]
     },
-    "types": ["node", "vitest/globals"]
+    "types": ["node"]
   },
-  "include": ["packages/**/*.ts", "vitest.config.ts"]
+  "include": ["packages/**/*.ts", "vitest.config.ts"],
+  "exclude": ["**/dist/**"]
 }
