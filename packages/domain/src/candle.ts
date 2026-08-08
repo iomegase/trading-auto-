@@ -27,7 +27,7 @@ export interface CandleInput {
 export interface Candle {
   readonly instrumentId: string;
   readonly timeframe: Timeframe;
-  readonly sourceTimestamp: InstantString;
+  readonly sourceTimestamp: string;
   readonly sourceTimezone: string;
   readonly exchangeTimezone: string;
   readonly openTime: InstantString;
@@ -44,17 +44,21 @@ export interface Candle {
 }
 
 function invalidCandle(
+  code: 'INVALID_CANDLE' | 'HIGH_BELOW_LOW',
   message: string,
   details?: Readonly<Record<string, unknown>>,
 ): never {
-  throw new DomainValidationError('INVALID_CANDLE', message, details);
+  throw new DomainValidationError(code, message, details);
 }
 
 function decimalForPrice(value: DecimalString, field: string): Decimal {
   const decimal = new Decimal(value);
 
   if (decimal.lte(0)) {
-    invalidCandle(`${field} must be greater than zero.`, { field, value });
+    invalidCandle('INVALID_CANDLE', `${field} must be greater than zero.`, {
+      field,
+      value,
+    });
   }
 
   return decimal;
@@ -62,16 +66,17 @@ function decimalForPrice(value: DecimalString, field: string): Decimal {
 
 function assertTimeframe(value: string): asserts value is Timeframe {
   if (value !== '1h' && value !== '4h') {
-    invalidCandle('timeframe must be one of the supported values.', {
-      timeframe: value,
-    });
+    invalidCandle(
+      'INVALID_CANDLE',
+      'timeframe must be one of the supported values.',
+      { timeframe: value },
+    );
   }
 }
 
 export function createCandle(input: CandleInput): Readonly<Candle> {
   assertTimeframe(input.timeframe);
 
-  const sourceTimestamp = asInstantString(input.sourceTimestamp);
   const openTime = asInstantString(input.openTime);
   const closeTime = asInstantString(input.closeTime);
   const availableAt = asInstantString(input.availableAt);
@@ -85,28 +90,39 @@ export function createCandle(input: CandleInput): Readonly<Candle> {
   const lowDecimal = decimalForPrice(low, 'low');
   const closeDecimal = decimalForPrice(close, 'close');
 
-  if (highDecimal.lt(openDecimal) || highDecimal.lt(closeDecimal)) {
-    invalidCandle('high must be at least both open and close.', {
+  if (highDecimal.lt(lowDecimal)) {
+    invalidCandle('HIGH_BELOW_LOW', 'high must not be less than low.', {
       high,
-      open,
-      close,
+      low,
     });
+  }
+
+  if (highDecimal.lt(openDecimal) || highDecimal.lt(closeDecimal)) {
+    invalidCandle(
+      'INVALID_CANDLE',
+      'high must be at least both open and close.',
+      {
+        high,
+        open,
+        close,
+      },
+    );
   }
 
   if (lowDecimal.gt(openDecimal) || lowDecimal.gt(closeDecimal)) {
-    invalidCandle('low must be at most both open and close.', {
-      low,
-      open,
-      close,
-    });
-  }
-
-  if (highDecimal.lt(lowDecimal)) {
-    invalidCandle('high must not be less than low.', { high, low });
+    invalidCandle(
+      'INVALID_CANDLE',
+      'low must be at most both open and close.',
+      {
+        low,
+        open,
+        close,
+      },
+    );
   }
 
   if (Temporal.Instant.compare(openTime, closeTime) >= 0) {
-    invalidCandle('openTime must be before closeTime.', {
+    invalidCandle('INVALID_CANDLE', 'openTime must be before closeTime.', {
       openTime,
       closeTime,
     });
@@ -114,6 +130,7 @@ export function createCandle(input: CandleInput): Readonly<Candle> {
 
   if (input.isClosed && Temporal.Instant.compare(availableAt, closeTime) < 0) {
     invalidCandle(
+      'INVALID_CANDLE',
       'availableAt must not be before closeTime for closed candles.',
       {
         availableAt,
@@ -125,7 +142,7 @@ export function createCandle(input: CandleInput): Readonly<Candle> {
   const candle: Candle = {
     instrumentId: input.instrumentId,
     timeframe: input.timeframe,
-    sourceTimestamp,
+    sourceTimestamp: input.sourceTimestamp,
     sourceTimezone: input.sourceTimezone,
     exchangeTimezone: input.exchangeTimezone,
     openTime,

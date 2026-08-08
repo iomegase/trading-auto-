@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import {
   asInstantString,
   createCandle,
   DomainValidationError,
   type CandleInput,
+  type DecimalString,
 } from './index.js';
 
 const validInput: CandleInput = {
@@ -51,10 +52,53 @@ describe('createCandle', () => {
     }).toThrow(TypeError);
   });
 
+  it('preserves a provider-local source timestamp without parsing it', () => {
+    const sourceTimestamp = '20260101 09:00:00 Europe/Paris';
+
+    expect(
+      createCandle({ ...validInput, sourceTimestamp }).sourceTimestamp,
+    ).toBe(sourceTimestamp);
+  });
+
   it('keeps an absent optional volume absent', () => {
     const candle = createCandle(validInput);
 
     expect('volume' in candle).toBe(false);
+  });
+
+  it('preserves a canonical supplied volume as a branded decimal string', () => {
+    const candle = createCandle({ ...validInput, volume: '250.50' });
+
+    expect(candle.volume).toBe('250.50');
+    expectTypeOf(candle.volume).toEqualTypeOf<DecimalString | undefined>();
+  });
+
+  it('rejects a non-canonical supplied volume', () => {
+    expect(() => createCandle({ ...validInput, volume: '1e3' })).toThrow(
+      DomainValidationError,
+    );
+  });
+
+  it('reports high below low before the OHLC envelope violations', () => {
+    const createInvalidCandle = () =>
+      createCandle({
+        ...validInput,
+        open: '98',
+        high: '98',
+        low: '99',
+        close: '98',
+      });
+
+    expect(createInvalidCandle).toThrow(DomainValidationError);
+
+    try {
+      createInvalidCandle();
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: 'HIGH_BELOW_LOW',
+        details: { high: '98', low: '99' },
+      });
+    }
   });
 
   it.each([

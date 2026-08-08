@@ -2,7 +2,8 @@ export type DomainValidationErrorCode =
   | 'INVALID_DECIMAL'
   | 'INVALID_INSTANT'
   | 'INVALID_TIMEFRAME'
-  | 'INVALID_CANDLE';
+  | 'INVALID_CANDLE'
+  | 'HIGH_BELOW_LOW';
 
 export class DomainValidationError extends Error {
   override readonly name = 'DomainValidationError';
