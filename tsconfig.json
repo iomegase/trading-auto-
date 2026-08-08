@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/domain" },
+    { "path": "./packages/calendars" },
+    { "path": "./packages/indicators" },
+    { "path": "./packages/strategy-ichimoku" },
+    { "path": "./packages/test-helpers" }
+  ]
+}
