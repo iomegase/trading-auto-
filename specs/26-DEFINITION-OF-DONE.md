@@ -13,6 +13,10 @@ Une feature métier est terminée seulement si :
 - comportement reproductible
 - erreur explicite
 - aucun changement silencieux des hypothèses de backtest
+- capital effectif `<= 1 000 EUR` démontré par tests de frontière
+- coûts et slippage inclus dans le sizing
+- quantité minimale, marge et exposition testées
+- aucune injection de cash ou mise à l'échelle implicite
 
 Une feature d'exécution exige en plus :
 
@@ -21,3 +25,4 @@ Une feature d'exécution exige en plus :
 - partial-fill handling
 - reconciliation
 - stale-data handling
+- protective-stop acknowledgement ou incident explicite

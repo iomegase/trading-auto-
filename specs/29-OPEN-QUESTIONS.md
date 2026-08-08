@@ -18,7 +18,9 @@ choisir explicitement :
 - CFD
 - autre
 
-Le `pointValue`, les horaires, les frais, le spread et le margin model en dépendent.
+La `monetaryValuePerPriceUnit`, les horaires, les frais, le spread et le margin model en dépendent.
+
+Pour le capital imposé de `1 000 EUR`, un instrument n'est éligible que si au moins une quantité négociable respecte simultanément le budget par trade, les coûts, la marge et l'exposition. Les indices cash de la liste ne sont pas eux-mêmes des instruments exécutables.
 
 ## OQ-002 — Source Market Data
 
@@ -90,3 +92,28 @@ Définir avant optimisation les critères nécessaires pour considérer une vari
 - stabilité des paramètres
 
 Éviter de fixer ces critères après avoir observé les meilleurs résultats.
+
+## OQ-009 — Univers exécutable avec 1 000 EUR
+
+Construire une matrice broker/instrument avec :
+
+- quantité minimale et pas de quantité
+- valeur par tick/point et devise de P&L
+- marge initiale/maintenance observée et date de validité
+- notionnel pour une quantité minimale
+- coûts aller-retour minimums
+- protection contre solde négatif applicable ou non
+
+Tout instrument sans données complètes reste `RESEARCH_ONLY`.
+
+## OQ-010 — Limites de perte opérationnelles
+
+Définir avant `PAPER` :
+
+- daily loss limit
+- drawdown kill switch
+- réserve de marge minimale
+- buffer de slippage/gap
+- comportement si la protection stop échoue
+
+Ces seuils ne doivent pas être choisis après observation des meilleurs backtests.

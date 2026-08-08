@@ -8,15 +8,38 @@
 - exchange
 - asset_class
 - quote_currency
+- pnl_currency
 - exchange_timezone
 - tick_size
-- point_value
+- tick_value
+- monetary_value_per_price_unit
 - quantity_step
 - min_quantity
 - contract_multiplier
 - session_calendar_id
 - risk_group
 - active
+
+Invariant : `tick_value / tick_size` doit être cohérent avec `monetary_value_per_price_unit`. `contract_multiplier` est conservé comme métadonnée et ne doit pas être appliqué une seconde fois si la valeur monétaire l'intègre déjà.
+
+## accounts
+
+- id
+- broker
+- account_currency
+- account_type
+- created_at
+
+## strategy_capital_allocations
+
+- id
+- account_id
+- strategy_version_id
+- reference_currency (`EUR`)
+- hard_cap_reference (`1000.00` maximum)
+- allocated_equity_account_ccy
+- effective_from
+- effective_to
 
 ## datasets
 
@@ -33,6 +56,8 @@
 - instrument_id
 - timeframe
 - source_timestamp
+- source_timezone
+- exchange_timezone
 - open_time
 - close_time
 - available_at
@@ -42,6 +67,8 @@
 - close
 - volume
 - is_closed
+- provider
+- ingested_at
 
 Unique :
 `dataset_id + instrument_id + timeframe + open_time`
@@ -80,19 +107,48 @@ Unique :
 - signal_id
 - evaluated_at
 - decision
-- requested_risk
+- requested_risk_account_ccy
+- effective_capital_account_ccy
+- risk_budget_account_ccy
+- budgeted_costs_account_ccy
+- budgeted_loss_account_ccy
+- margin_required_account_ccy
+- gross_exposure_account_ccy
+- account_currency
+- fx_rate
+- fx_as_of
 - approved_quantity
 - entry_reference_price
 - stop_price
 - reasons_json
 
+## order_intents
+
+- id
+- signal_id (nullable pour une intention non créée par un nouveau signal)
+- position_id (nullable)
+- strategy_version_id
+- instrument_id
+- account_id
+- intent_type
+- requested_quantity
+- status
+- expires_at
+- created_at
+
+Index unique partiel : une seule intention `ENTRY` active par `account_id + strategy_version_id + instrument_id`.
+
 ## orders
 
 - id
-- signal_id
+- signal_id (nullable pour stop/sortie)
 - risk_decision_id
+- account_id
 - broker
+- order_intent_id
+- intent_type
 - idempotency_key
+- client_order_id
 - external_order_id
 - side
 - order_type
@@ -100,6 +156,8 @@ Unique :
 - status
 - created_at
 - updated_at
+
+Unique : `broker + account_id + idempotency_key`.
 
 ## fills
 
@@ -115,13 +173,19 @@ Unique :
 ## positions
 
 - id
+- account_id
+- strategy_version_id
 - instrument_id
 - side
 - quantity
 - average_entry_price
 - protective_stop_price
+- initial_risk_account_ccy
+- margin_reserved_account_ccy
 - opened_at
 - closed_at
+
+Index unique partiel : une seule position ouverte par `account_id + strategy_version_id + instrument_id`.
 
 ## trades
 
@@ -148,6 +212,9 @@ Unique :
 - cost_model_version
 - execution_model_version
 - random_seed
+- account_currency
+- initial_capital
+- hard_capital_cap_eur
 - date_from
 - date_to
 - status
@@ -163,3 +230,14 @@ Unique :
 - open_pnl
 - realized_pnl
 - drawdown
+
+## Types et contraintes
+
+- montants, prix et quantités : `NUMERIC`, jamais `REAL`/`DOUBLE PRECISION`
+- timestamps métier : `TIMESTAMPTZ`
+- `hard_cap_reference <= 1000.00`
+- quantités positives et alignées sur `quantity_step`
+- prix alignés sur `tick_size` avant soumission
+- clés étrangères et contraintes d'unicité explicites pour fills, intents et snapshots
+- `backtests.hard_capital_cap_eur <= 1000.00`
+- unicité des fills au minimum sur `order_id + external_fill_id`

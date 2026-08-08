@@ -63,13 +63,27 @@ Minimum :
 - exchange
 - assetClass
 - quoteCurrency
+- pnlCurrency
 - exchangeTimezone
 - tickSize
+- tickValue
 - quantityStep
 - minQuantity
-- contractMultiplier / pointValue
+- contractMultiplier
+- monetaryValuePerPriceUnit
 - sessionCalendarId
 - riskGroup
+
+`monetaryValuePerPriceUnit` est la valeur monétaire d'un mouvement de prix de `1.0` pour une unité/contrat, dans `pnlCurrency`. Il peut être dérivé de `tickValue / tickSize` ou du multiplicateur, mais jamais obtenu en multipliant à nouveau deux champs qui représentent déjà la même valeur économique.
+
+Les métadonnées doivent vérifier :
+
+```txt
+tickSize > 0
+tickValue > 0
+monetaryValuePerPriceUnit > 0
+abs(tickValue / tickSize - monetaryValuePerPriceUnit) <= tolerance
+```
 
 ## MD-007 — Reproductibilité
 

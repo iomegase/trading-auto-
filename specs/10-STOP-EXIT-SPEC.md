@@ -34,11 +34,22 @@ Invalide si :
 proposedInitialStop <= referenceEntryPrice
 ```
 
+## Arrondi au tick
+
+Le stop proposé est aligné sur `tickSize` avant le sizing :
+
+- LONG : arrondi vers le haut, donc vers l'entrée
+- SHORT : arrondi vers le bas, donc vers l'entrée
+
+Après arrondi, le moteur revalide que le stop reste strictement du bon côté du prix d'entrée. Toute autre politique d'arrondi doit être versionnée et le risque recalculé avec le prix réellement soumis.
+
 ## Important : prix d'entrée
 
 Le prix d'entrée réel n'est connu qu'à l'exécution.
 
 Le Risk Engine doit recalculer le risque avec le prix exécutable/fill attendu.
+
+Ce calcul inclut les coûts d'entrée, les coûts estimés d'une sortie au stop et un slippage adverse versionné. Le moteur ne peut pas supposer que le stop borne parfaitement la perte.
 
 Si un gap rend le stop invalide ou le risque excessif :
 
@@ -89,6 +100,19 @@ fill au prix disponible selon le modèle d'exécution
 ```
 
 et non au stop théorique.
+
+La différence entre le fill réel/simulé et le stop est comptabilisée dans le P&L et peut faire dépasser le budget de risque prévu. Le plafond de capital de `1 000 EUR` ne doit donc jamais être présenté comme une garantie de perte maximale.
+
+## Ordre des événements bar-based
+
+Pour une position déjà ouverte :
+
+1. appliquer un éventuel gap de stop à l'open
+2. évaluer le stop intrabar
+3. évaluer à la clôture la règle de sortie de tendance
+4. exécuter cette sortie au prochain prix tradable
+
+Une sortie de tendance connue seulement au close ne peut pas annuler un stop qui a été touché auparavant dans la même bougie.
 
 ## Variantes
 

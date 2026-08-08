@@ -14,6 +14,21 @@ Le backtest avance événement par événement.
 availableAt <= T
 ```
 
+## Capital et comptabilité
+
+Baseline :
+
+```txt
+accountCurrency = EUR
+initialCash = 1 000 EUR
+hardCapitalCap = 1 000 EUR
+cashInjection = FORBIDDEN
+```
+
+Le backtest utilise une comptabilité cash, marge, P&L réalisé/non réalisé et frais. Il ne redimensionne jamais les résultats obtenus avec un autre capital pour prétendre représenter un compte de `1 000 EUR`.
+
+Un signal non exécutable à cause de `minQuantity`, de la marge, des coûts ou de l'exposition est enregistré comme rejet de risque ; il n'est ni omis silencieusement ni exécuté avec une quantité fractionnaire inventée.
+
 ## Pipeline
 
 À la clôture d'une bougie de signal :
@@ -29,6 +44,8 @@ availableAt <= T
 9. simuler fill
 10. gérer stops/sorties
 11. enregistrer portfolio/equity
+
+Si l'equity disponible devient insuffisante, aucune recharge implicite n'est autorisée. Le run continue sans nouvelle entrée ou se termine selon une politique versionnée (`NO_NEW_ENTRIES` baseline).
 
 ## Default Entry Model
 
@@ -73,6 +90,8 @@ Un stop traversé par un gap n'est pas rempli automatiquement au stop théorique
 
 Les coûts doivent être timestampés/versionnés.
 
+Le sizing utilise une estimation causale des coûts ; le P&L utilise ensuite les coûts effectivement simulés. L'écart entre estimation et réalisation est conservé.
+
 ## Metrics
 
 - total return
@@ -92,6 +111,8 @@ Les coûts doivent être timestampés/versionnés.
 - MFE
 - turnover
 - costs as % gross PnL
+- risk rejections by reason, notamment `MIN_QUANTITY`, `MARGIN`, `CAPITAL_CAP`, `COSTS`
+- feasible signal rate après contraintes du compte de `1 000 EUR`
 
 ## Sharpe/Sortino
 
@@ -108,6 +129,9 @@ Un backtest doit stocker :
 - costModelVersion
 - executionModelVersion
 - randomSeed si applicable
+- initialCapital et devise
+- hardCapitalCap
+- règles de marge/exposition
 
 ## Validation
 

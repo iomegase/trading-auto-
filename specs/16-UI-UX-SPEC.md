@@ -3,8 +3,10 @@
 ## Dashboard
 
 - equity
+- capital attribué / plafond dur `1 000 EUR`
 - drawdown
-- remaining/open risk
+- remaining/open risk en pourcentage et en montant
+- marge utilisée et exposition brute
 - positions
 - today's signals
 - data freshness
@@ -92,3 +94,12 @@ Interdit :
 Correct :
 
 `Setup score 84/100`
+
+L'UI affiche distinctement :
+
+- equity du compte broker
+- equity attribuée à la stratégie
+- capital effectif retenu pour le sizing
+- plafond de `1 000 EUR`
+
+Un solde broker supérieur ne doit jamais laisser entendre que la stratégie peut dépasser son allocation.

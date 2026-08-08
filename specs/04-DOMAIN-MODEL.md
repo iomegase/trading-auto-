@@ -6,14 +6,18 @@
 type Candle = {
   instrumentId: string
   timeframe: Timeframe
+  sourceTimestamp: string
+  sourceTimezone: string
+  exchangeTimezone: string
   openTime: Instant
   closeTime: Instant
   availableAt: Instant
-  open: number
-  high: number
-  low: number
-  close: number
-  volume?: number
+  ingestedAt: Instant
+  open: DecimalString
+  high: DecimalString
+  low: DecimalString
+  close: DecimalString
+  volume?: DecimalString
   isClosed: boolean
   provider: string
 }
@@ -21,6 +25,7 @@ type Candle = {
 
 `closeTime` décrit la période économique.
 `availableAt` décrit quand la donnée est réellement utilisable.
+`ingestedAt` décrit l'arrivée dans notre système et ne remplace pas `availableAt`.
 
 ## IchimokuSnapshot
 
@@ -70,6 +75,28 @@ type DecisionContext = {
 }
 ```
 
+## StrategyCapitalContext
+
+```ts
+type StrategyCapitalContext = {
+  referenceCurrency: "EUR"
+  hardCapEur: DecimalString
+  strategyEquityAccountCcy: DecimalString
+  hardCapAccountCcy: DecimalString
+  effectiveCapitalAccountCcy: DecimalString
+  fxAsOf: Instant | null
+}
+```
+
+Invariant :
+
+```txt
+effectiveCapitalAccountCcy =
+  min(strategyEquityAccountCcy, hardCapAccountCcy)
+
+0 < hardCapEur <= 1000.00
+```
+
 ## Signal
 
 ```ts
@@ -78,7 +105,7 @@ type Signal = {
   instrumentId: string
   context: DecisionContext
   direction: "LONG" | "SHORT" | "NONE"
-  status: "CANDIDATE" | "REJECTED" | "APPROVED"
+  status: "CANDIDATE" | "REJECTED" | "APPROVED" | "EXPIRED"
   setupScore: number | null
   reasons: SignalReason[]
 }
@@ -89,16 +116,18 @@ type Signal = {
 ```ts
 type Position = {
   id: string
+  accountId: string
   instrumentId: string
+  strategyVersion: string
   side: "LONG" | "SHORT"
-  quantity: number
-  averageEntryPrice: number
-  protectiveStopPrice: number | null
-  initialRiskAmountAccountCcy: number
-  initialRiskPoints: number
+  quantity: DecimalString
+  averageEntryPrice: DecimalString
+  protectiveStopPrice: DecimalString | null
+  initialRiskAmountAccountCcy: DecimalString
+  initialRiskPoints: DecimalString
   openedAt: Instant
   closedAt?: Instant
-  realizedPnlAccountCcy?: number
+  realizedPnlAccountCcy?: DecimalString
 }
 ```
 
@@ -108,4 +137,8 @@ type Position = {
 R = realizedPnL / initialRiskAmount
 ```
 
-Le dénominateur est figé à l'entrée.
+`realizedPnL` est net de commissions, spread, slippage, financement et autres frais imputables au trade. Le dénominateur est le risque initial budgété, lui aussi frais inclus, et reste figé après le premier fill.
+
+## Types numériques
+
+`DecimalString` représente une valeur décimale canonique. Les montants, prix exécutables et quantités ne doivent pas être persistés comme nombres binaires flottants.

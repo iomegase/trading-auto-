@@ -68,13 +68,39 @@ Le test doit couvrir :
 
 ## Risk
 
-- point value
+- compte EUR à `800` → capital effectif `800`
+- compte EUR à `2 500` → capital effectif `1 000`
+- compte non-EUR → conversion conservative et fraîche du plafond `1 000 EUR`
+- `riskPerTradePct = 0.5` sur `1 000 EUR` → budget total maximal `5 EUR`
+- coûts fixes/variables et slippage inclus dans le budget de `5 EUR`
+- quantité minimale au-dessus du budget → `REJECT`, jamais arrondi à la hausse
+- valeur monétaire par unité de prix
+- cohérence tick value / tick size sans double application du contract multiplier
 - FX conversion
 - quantity step
 - min quantity
+- arrondi du stop au tick dans la direction définie, puis nouveau calcul de risque
 - stale quote
 - insufficient margin
 - risk group limit
+- marge/exposition obligatoire pour instrument à levier
+- capital effectif ne dépasse jamais `1 000 EUR` après arrondis
+
+## Capital de backtest
+
+- capital initial `1 000 EUR`
+- rejet de toute valeur supérieure
+- aucune injection de cash
+- aucun scaling a posteriori depuis un compte plus grand
+- comptabilisation des signaux devenus non exécutables à cause des contraintes de petite taille
+
+## Execution Safety
+
+- deux signaux consécutifs sur le même instrument → une seule intention active
+- position ouverte + signal de même sens/opposé → rejet baseline, aucun pyramiding/hedge
+- aucune collision d'idempotency entre comptes, brokers, entrées, stops et sorties
+- fill partiel qui atteint une limite → reliquat annulé
+- échec d'accusé de réception du stop protecteur → incident et blocage des entrées
 
 ## Backtest Reproducibility
 

@@ -86,6 +86,19 @@ Pour disposer du `currentCloudB[t]` avec les paramètres 52/26, il faut suffisam
 
 Avec une série indexée à partir de zéro et les paramètres 52/26, le premier `currentCloudB` valide est obtenu à l'index `77`, c'est-à-dire sur la 78e bougie. Ce cas doit faire l'objet d'un test explicite d'absence d'erreur off-by-one.
 
+Index initiaux attendus pour la baseline :
+
+| Valeur | Premier index valide |
+|---|---:|
+| Tenkan | 8 |
+| Kijun | 25 |
+| Senkou A raw / projetée | 25 |
+| Senkou B raw / projetée | 51 |
+| Current Cloud A | 51 |
+| Current Cloud B | 77 |
+
+Une règle nécessitant le Kumo complet retourne `INSUFFICIENT_DATA` avant l'index `77`.
+
 ## Chikou
 
 La Chikou est le `close[t]` représenté à `t - displacement`.

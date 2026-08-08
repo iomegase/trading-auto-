@@ -93,3 +93,13 @@ Un signal contient :
 Un signal doit avoir un TTL configurable.
 
 Si le marché ouvre avec un gap ou si le contexte change avant exécution, le Risk/Execution Engine peut le refuser.
+
+## Position Policy Baseline
+
+- une seule position ouverte par instrument pour cette stratégie
+- une seule intention d'entrée active par instrument
+- pyramiding interdit
+- aucun hedge LONG/SHORT simultané sur le même instrument
+- un nouveau signal est enregistré mais rejeté avec `POSITION_ALREADY_OPEN` ou `ENTRY_INTENT_ALREADY_ACTIVE`
+
+Toute politique de pyramiding ou de retournement immédiat exige une nouvelle version de stratégie et de modèle d'exécution.

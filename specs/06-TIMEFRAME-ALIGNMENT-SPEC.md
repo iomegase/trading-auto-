@@ -34,6 +34,9 @@ Si H4 est dérivé de H1 :
 - définir l'origine des fenêtres
 - ne pas agréger arbitrairement sur des multiples UTC
 - ne pas mélanger deux sessions distinctes sans règle explicite
+- calculer `H4.availableAt = max(availableAt)` des bougies H1 réellement utilisées
+- ne marquer H4 `isClosed = true` qu'après la fin de la fenêtre et la validation de toutes les bougies attendues ou des absences autorisées par le calendrier
+- retourner `INSUFFICIENT_DATA` si une bougie attendue manque sans justification de calendrier
 
 ## Synchronisation multi-instruments
 
@@ -50,3 +53,5 @@ Si `signalInstrumentId != executionInstrumentId` :
 - changement DST
 - session interrompue
 - jour férié
+- dernière H1 constitutive reçue avec retard
+- H1 manquante non justifiée → H4 inutilisable

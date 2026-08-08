@@ -70,6 +70,12 @@ Redis peut servir pour :
 - events
 - idempotency
 
+## Précision numérique
+
+- prix, quantités, devises, frais, marge et P&L persistés utilisent un type décimal exact
+- les arrondis de tick et de quantité sont réalisés côté domaine/exécution, jamais dans le frontend
+- les nombres IEEE-754 peuvent être utilisés pour des indicateurs de recherche uniquement si aucune valeur monétaire ou quantité exécutable n'en dépend sans conversion décimale contrôlée
+
 ## Événements principaux
 
 ```txt

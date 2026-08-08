@@ -66,9 +66,21 @@ Le Risk Engine retourne :
 
 avec motif.
 
+Il doit aussi exposer :
+
+- capital effectif utilisé, toujours `<= 1 000 EUR` ou son équivalent converti
+- budget de risque brut et net de coûts
+- quantité demandée et quantité approuvée
+- perte budgétée au stop, frais et slippage inclus
+- marge et exposition après ordre
+
+Une quantité minimale non compatible avec le budget est rejetée, jamais arrondie à la hausse.
+
 ## F-009 — Backtest
 
 Le moteur doit être causal, séquentiel et reproductible.
+
+Le backtest baseline démarre avec `1 000 EUR` et n'ajoute aucun capital implicitement.
 
 ## F-010 — Paper Execution
 

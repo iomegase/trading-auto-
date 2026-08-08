@@ -40,11 +40,20 @@ Tester au minimum plusieurs scénarios :
 - 1.5× coûts
 - 2× coûts
 
+Chaque scénario doit être simulé avec le capital réel de `1 000 EUR`, les pas de quantité, commissions minimales et contraintes de marge. Il est interdit de backtester sur un gros capital puis de diviser linéairement le résultat.
+
 ## Sample Size
 
 Ne pas conclure sur le score ou un sous-groupe avec trop peu de trades.
 
 Afficher systématiquement le nombre d'observations.
+
+Afficher aussi :
+
+- signaux bruts
+- trades réellement exécutables
+- rejets `MIN_QUANTITY`, `COSTS`, `MARGIN`, `CAPITAL_CAP`
+- taux de faisabilité pour un compte de `1 000 EUR`
 
 ## Multiple Testing
 
@@ -79,3 +88,5 @@ Avant live :
 - tester incidents réseau
 - tester stale data
 - tester broker rejection
+
+Avant de conclure à l'éligibilité d'un instrument, stresser aussi les gaps, la hausse de marge, la conversion FX et le coût minimum par ordre. Une stratégie statistiquement positive mais inexécutable avec `1 000 EUR` est rejetée pour ce périmètre.

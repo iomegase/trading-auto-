@@ -13,6 +13,9 @@ Lis l'intégralité des specs avant de coder.
 5. tests avant UI
 6. stratégie et backtest partagent le même code
 7. aucune exécution live
+8. capital effectif strictement plafonné à `1 000 EUR`
+9. sizing frais/slippage inclus et quantité minimale jamais forcée
+10. prix, quantités et montants exécutables en décimal exact
 
 ## Première milestone
 
@@ -38,7 +41,9 @@ Le test doit échouer si le code compare le prix au projected Kumo au lieu du cu
 
 ## Deuxième milestone
 
-- backtest sequential clock
+- Risk Engine plafonné à `1 000 EUR`
+- contrôles quantité minimale, FX, coûts, marge et exposition
+- backtest sequential clock sur `1 000 EUR` sans injection de cash
 - NEXT_BAR_OPEN fills
 - gap rules
 - STOP_FIRST ambiguity policy
@@ -52,3 +57,6 @@ Le test doit échouer si le code compare le prix au projected Kumo au lieu du cu
 - pas de percentile calculé sur dataset complet
 - pas de fill au close du signal sous NEXT_BAR_OPEN
 - pas de resubmission aveugle après timeout
+- pas de redimensionnement d'un backtest à gros capital pour simuler `1 000 EUR`
+- pas de double multiplication `pointValue × contractMultiplier`
+- pas d'arrondi à `minQuantity` si le budget de risque est dépassé

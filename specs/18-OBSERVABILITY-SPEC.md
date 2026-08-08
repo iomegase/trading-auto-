@@ -24,11 +24,18 @@ Inclure lorsque disponible :
 - data_staleness_seconds
 - signals_total
 - risk_rejections_total
+- risk_rejections_capital_cap_total
+- risk_rejections_min_quantity_total
+- risk_rejections_costs_total
+- risk_rejections_margin_total
 - orders_submitted_total
 - partial_fills_total
 - orders_unknown_total
 - broker_reconciliation_errors_total
 - engine_lag_ms
+- strategy_effective_capital_account_ccy
+- strategy_open_risk_account_ccy
+- strategy_margin_used_account_ccy
 
 ## Health
 
@@ -50,3 +57,5 @@ Journaliser :
 - kill switch
 - mode change
 - config/version change
+
+Les métriques monétaires doivent porter la devise. Les raisons de rejet conservent les valeurs numériques utiles à l'audit sans exposer de secret ou d'identifiant broker sensible.

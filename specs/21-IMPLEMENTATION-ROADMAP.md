@@ -7,6 +7,8 @@
 - test runner
 - CI
 - config validation
+- plafond serveur `1 000 EUR`
+- types décimaux pour prix/quantités/montants
 
 ## Phase 1 — Domain + Calendars
 
@@ -42,7 +44,16 @@
 - score
 - stop/exit baseline
 
-## Phase 6 — Backtest
+## Phase 6 — Risk
+
+- capital effectif plafonné à `1 000 EUR`
+- sizing frais inclus
+- FX
+- quantité minimale/pas de quantité
+- marge et exposition
+- tests de faisabilité par instrument
+
+## Phase 7 — Backtest
 
 - sequential clock
 - next-bar execution
@@ -50,13 +61,7 @@
 - intrabar policy
 - costs
 - metrics
-
-## Phase 7 — Risk
-
-- sizing
-- FX
-- margin
-- exposure
+- comptabilité sur `1 000 EUR` sans injection implicite
 
 ## Phase 8 — Persistence + API
 
@@ -96,4 +101,4 @@
 
 ## Phase 13 — Live
 
-Hors V1 et uniquement après décision explicite.
+Hors V1 et uniquement après décision explicite. `SEMI_AUTO` et `AUTO` restent indisponibles dans la livraison V1.

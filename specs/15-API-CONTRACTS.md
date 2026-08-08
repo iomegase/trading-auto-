@@ -38,9 +38,16 @@ Crée un job immuable.
   "instrumentIds": ["dax"],
   "dateFrom": "2018-01-01",
   "dateTo": "2026-01-01",
+  "capital": {
+    "currency": "EUR",
+    "initialCapital": 1000,
+    "hardCapitalCapEur": 1000
+  },
   "config": {}
 }
 ```
+
+L'API rejette `initialCapital > 1000`, `hardCapitalCapEur > 1000`, une devise sans conversion disponible, ou toute tentative d'injection de capital au cours du run.
 
 Réponse :
 
@@ -66,13 +73,16 @@ Retourne :
 
 Seulement `SEMI_AUTO`.
 
+Dans la V1 de recherche, cet endpoint répond `409 LIVE_MODE_DISABLED` car `SEMI_AUTO` n'est pas activable.
+
 Avant ordre :
 
 1. charger signal
 2. vérifier expiration
 3. obtenir prix frais
 4. recalculer Risk Engine
-5. utiliser idempotency key
-6. soumettre
+5. vérifier capital effectif, coûts, marge et exposition
+6. utiliser idempotency key
+7. soumettre
 
 Une validation frontend ne vaut jamais autorisation définitive.

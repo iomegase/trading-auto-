@@ -1,8 +1,10 @@
-# Trading Automatisé — Spec-Driven V2
+# Trading Automatisé — Spec-Driven V3
 
 ## Objectif
 
 Construire une plateforme de recherche, backtest, paper trading et, seulement après validation, exécution automatisée d'une stratégie Ichimoku.
+
+Le capital attribuable à cette stratégie est libellé en EUR et strictement plafonné à `1 000 EUR`. Le moteur utilise le plus petit montant entre les fonds réellement attribués et ce plafond.
 
 La V1 de recherche est basée sur :
 
@@ -31,7 +33,7 @@ Market Data
 
 Le backtest doit réutiliser exactement les mêmes fonctions métier que le moteur temps réel.
 
-## Corrections majeures V2
+## Corrections majeures V2 et audit V3
 
 1. Le Kumo visible au temps `t` utilise les Senkou calculées à `t - 26`.
 2. Les Senkou calculées à `t` décrivent le Kumo projeté à `t + 26`.
@@ -43,6 +45,11 @@ Le backtest doit réutiliser exactement les mêmes fonctions métier que le mote
 8. Les datasets, coûts, configuration et code doivent être versionnés pour reproduire un backtest.
 9. Le score n'est pas une probabilité de succès.
 10. Le paper trading n'est pas une preuve de qualité d'exécution live.
+11. Le sizing est calculé sur un capital effectif plafonné à `1 000 EUR`, même si le compte broker contient davantage.
+12. Les frais et le slippage budgétés font partie du risque par trade.
+13. `pointValue` et `contractMultiplier` ne peuvent pas être multipliés deux fois.
+14. Un instrument dont la quantité minimale, la marge ou les coûts dépassent les limites est non éligible ; aucun arrondi à la hausse n'est permis.
+15. Le plafond de capital ne garantit pas une perte maximale : gaps, levier et défaillances d'exécution restent possibles.
 
 ## Structure cible
 
@@ -76,4 +83,11 @@ packages/
 - modèle d'exécution explicitement défini
 - décision et raisons persistées
 - Risk Engine obligatoire avant ordre
+- capital effectif de stratégie `<= 1 000 EUR`
+- aucune injection de capital implicite dans un backtest
+- aucune quantité minimale forcée si elle dépasse le budget de risque
 - mode live désactivé par défaut
+
+## Version de l'audit
+
+Les corrections de cohérence et de risque introduites après la V2 sont consignées dans `30-AUDIT-CORRECTIONS-V3.md`.

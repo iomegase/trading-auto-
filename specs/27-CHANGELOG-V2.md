@@ -1,5 +1,7 @@
 # Changelog V2
 
+Ce fichier reste l'historique de la V2. Les corrections issues de l'audit capital/risque sont décrites dans `30-AUDIT-CORRECTIONS-V3.md`.
+
 ## Corrections critiques
 
 ### 1 — Kumo
