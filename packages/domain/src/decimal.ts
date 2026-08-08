@@ -9,6 +9,14 @@ export type DecimalString = string & {
 };
 
 const CANONICAL_DECIMAL = /^-?(0|[1-9]\d*)(\.\d+)?$/;
+const StableDecimal = Decimal.clone({
+  maxE: 9e15,
+  minE: -9e15,
+});
+
+export function decimalFrom(value: DecimalString): Decimal {
+  return new StableDecimal(value);
+}
 
 export function asDecimalString(value: string): DecimalString {
   if (typeof value !== 'string' || !CANONICAL_DECIMAL.test(value)) {
@@ -20,7 +28,7 @@ export function asDecimalString(value: string): DecimalString {
   }
 
   try {
-    if (!new Decimal(value).isFinite()) {
+    if (!decimalFrom(value as DecimalString).isFinite()) {
       throw new DomainValidationError(
         'INVALID_DECIMAL',
         'Decimal strings must be finite.',

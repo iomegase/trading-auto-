@@ -1,7 +1,6 @@
 import { Temporal } from '@js-temporal/polyfill';
-import { Decimal } from 'decimal.js';
 
-import { asDecimalString, type DecimalString } from './decimal.js';
+import { asDecimalString, decimalFrom, type DecimalString } from './decimal.js';
 import { DomainValidationError } from './errors.js';
 import { asInstantString, type InstantString, type Timeframe } from './time.js';
 
@@ -44,15 +43,15 @@ export interface Candle {
 }
 
 function invalidCandle(
-  code: 'INVALID_CANDLE' | 'HIGH_BELOW_LOW',
+  code: 'INVALID_CANDLE' | 'INVALID_TIMEFRAME' | 'HIGH_BELOW_LOW',
   message: string,
   details?: Readonly<Record<string, unknown>>,
 ): never {
   throw new DomainValidationError(code, message, details);
 }
 
-function decimalForPrice(value: DecimalString, field: string): Decimal {
-  const decimal = new Decimal(value);
+function decimalForPrice(value: DecimalString, field: string) {
+  const decimal = decimalFrom(value);
 
   if (decimal.lte(0)) {
     invalidCandle('INVALID_CANDLE', `${field} must be greater than zero.`, {
@@ -64,18 +63,109 @@ function decimalForPrice(value: DecimalString, field: string): Decimal {
   return decimal;
 }
 
-function assertTimeframe(value: string): asserts value is Timeframe {
+function assertTimeframe(value: unknown): asserts value is Timeframe {
   if (value !== '1h' && value !== '4h') {
     invalidCandle(
-      'INVALID_CANDLE',
+      'INVALID_TIMEFRAME',
       'timeframe must be one of the supported values.',
       { timeframe: value },
     );
   }
 }
 
+function assertNonEmptyString(
+  value: unknown,
+  field: string,
+): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    invalidCandle('INVALID_CANDLE', `${field} must be a non-empty string.`, {
+      field,
+      value,
+    });
+  }
+}
+
+function assertString(value: unknown, field: string): asserts value is string {
+  if (typeof value !== 'string') {
+    invalidCandle('INVALID_CANDLE', `${field} must be a string.`, {
+      field,
+      value,
+    });
+  }
+}
+
+function validateCandleInput(input: CandleInput): void {
+  const candidate: unknown = input;
+
+  if (
+    typeof candidate !== 'object' ||
+    candidate === null ||
+    Array.isArray(candidate)
+  ) {
+    invalidCandle('INVALID_CANDLE', 'input must be an object.', {
+      field: 'input',
+    });
+  }
+
+  const record = candidate as Record<string, unknown>;
+
+  assertNonEmptyString(record.instrumentId, 'instrumentId');
+  assertTimeframe(record.timeframe);
+  assertNonEmptyString(record.sourceTimestamp, 'sourceTimestamp');
+  assertNonEmptyString(record.sourceTimezone, 'sourceTimezone');
+  assertNonEmptyString(record.exchangeTimezone, 'exchangeTimezone');
+  assertString(record.openTime, 'openTime');
+  assertString(record.closeTime, 'closeTime');
+  assertString(record.availableAt, 'availableAt');
+  assertString(record.ingestedAt, 'ingestedAt');
+  assertString(record.open, 'open');
+  assertString(record.high, 'high');
+  assertString(record.low, 'low');
+  assertString(record.close, 'close');
+  assertNonEmptyString(record.provider, 'provider');
+
+  if (typeof record.isClosed !== 'boolean') {
+    invalidCandle('INVALID_CANDLE', 'isClosed must be a boolean.', {
+      field: 'isClosed',
+      value: record.isClosed,
+    });
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(record, 'volume') &&
+    typeof record.volume !== 'string'
+  ) {
+    invalidCandle('INVALID_CANDLE', 'volume must be a string when supplied.', {
+      field: 'volume',
+      value: record.volume,
+    });
+  }
+}
+
+function decimalForVolume(value: string): DecimalString {
+  let volume: DecimalString;
+
+  try {
+    volume = asDecimalString(value);
+  } catch {
+    invalidCandle('INVALID_CANDLE', 'volume must be a canonical decimal.', {
+      field: 'volume',
+      value,
+    });
+  }
+
+  if (decimalFrom(volume).isNegative()) {
+    invalidCandle('INVALID_CANDLE', 'volume must not be negative.', {
+      field: 'volume',
+      value,
+    });
+  }
+
+  return volume;
+}
+
 export function createCandle(input: CandleInput): Readonly<Candle> {
-  assertTimeframe(input.timeframe);
+  validateCandleInput(input);
 
   const openTime = asInstantString(input.openTime);
   const closeTime = asInstantString(input.closeTime);
@@ -160,6 +250,6 @@ export function createCandle(input: CandleInput): Readonly<Candle> {
   return Object.freeze(
     input.volume === undefined
       ? candle
-      : { ...candle, volume: asDecimalString(input.volume) },
+      : { ...candle, volume: decimalForVolume(input.volume) },
   );
 }

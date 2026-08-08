@@ -26,6 +26,23 @@ const validInput: CandleInput = {
   provider: 'synthetic',
 };
 
+function expectDomainValidationError(
+  action: () => unknown,
+  code: string,
+  details: Readonly<Record<string, unknown>>,
+): void {
+  let received: unknown;
+
+  try {
+    action();
+  } catch (error) {
+    received = error;
+  }
+
+  expect(received).toBeInstanceOf(DomainValidationError);
+  expect(received).toMatchObject({ code, details });
+}
+
 describe('asInstantString', () => {
   it('accepts an ISO instant', () => {
     expect(asInstantString('2026-01-01T08:00:00Z')).toBe(
@@ -64,6 +81,27 @@ describe('createCandle', () => {
     const candle = createCandle(validInput);
 
     expect('volume' in candle).toBe(false);
+  });
+
+  it.each([
+    ['absent', {}, undefined],
+    ['zero', { volume: '0' }, '0'],
+    ['positive', { volume: '250.50' }, '250.50'],
+  ] as const)('accepts %s volume', (_description, override, expected) => {
+    expect(createCandle({ ...validInput, ...override }).volume).toBe(expected);
+  });
+
+  it.each([
+    ['explicit undefined', { volume: undefined }],
+    ['negative', { volume: '-1' }],
+    ['negative zero', { volume: '-0' }],
+    ['malformed', { volume: '1e3' }],
+  ] as const)('rejects %s volume', (_description, override) => {
+    expectDomainValidationError(
+      () => createCandle({ ...validInput, ...override } as CandleInput),
+      'INVALID_CANDLE',
+      { field: 'volume', value: override.volume },
+    );
   });
 
   it('preserves a canonical supplied volume as a branded decimal string', () => {
@@ -127,6 +165,99 @@ describe('createCandle', () => {
   ] as const)('rejects %s', (_reason, override) => {
     expect(() => createCandle({ ...validInput, ...override })).toThrow(
       DomainValidationError,
+    );
+  });
+
+  it.each([
+    ['a non-object input', null, 'INVALID_CANDLE', { field: 'input' }],
+    ['a numeric instrumentId', 42, 'INVALID_CANDLE', { field: 'instrumentId' }],
+    ['an empty instrumentId', '', 'INVALID_CANDLE', { field: 'instrumentId' }],
+    ['a non-string provider', 42, 'INVALID_CANDLE', { field: 'provider' }],
+    ['an empty provider', '', 'INVALID_CANDLE', { field: 'provider' }],
+    [
+      'a non-string sourceTimestamp',
+      42,
+      'INVALID_CANDLE',
+      { field: 'sourceTimestamp' },
+    ],
+    [
+      'an empty sourceTimestamp',
+      '',
+      'INVALID_CANDLE',
+      { field: 'sourceTimestamp' },
+    ],
+    [
+      'a non-string sourceTimezone',
+      42,
+      'INVALID_CANDLE',
+      { field: 'sourceTimezone' },
+    ],
+    [
+      'an empty sourceTimezone',
+      '',
+      'INVALID_CANDLE',
+      { field: 'sourceTimezone' },
+    ],
+    [
+      'a non-string exchangeTimezone',
+      42,
+      'INVALID_CANDLE',
+      { field: 'exchangeTimezone' },
+    ],
+    [
+      'an empty exchangeTimezone',
+      '',
+      'INVALID_CANDLE',
+      { field: 'exchangeTimezone' },
+    ],
+    [
+      'a non-boolean isClosed',
+      'false',
+      'INVALID_CANDLE',
+      { field: 'isClosed' },
+    ],
+    ['an invalid timeframe', '15m', 'INVALID_TIMEFRAME', { timeframe: '15m' }],
+  ] as const)(
+    'rejects %s at the runtime trust boundary',
+    (_description, value, code, details) => {
+      if (_description === 'a non-object input') {
+        expectDomainValidationError(
+          () => createCandle(value as unknown as CandleInput),
+          code,
+          details,
+        );
+        return;
+      }
+
+      const field =
+        'field' in details ? (details.field as string) : ('timeframe' as const);
+
+      expectDomainValidationError(
+        () =>
+          createCandle({
+            ...validInput,
+            [field]: value,
+          }),
+        code,
+        details,
+      );
+    },
+  );
+
+  it.each([
+    'openTime',
+    'closeTime',
+    'availableAt',
+    'ingestedAt',
+    'open',
+    'high',
+    'low',
+    'close',
+  ] as const)('rejects a non-string %s', (field) => {
+    expectDomainValidationError(
+      () => createCandle({ ...validInput, [field]: 42 }),
+      'INVALID_CANDLE',
+      { field },
     );
   });
 });
