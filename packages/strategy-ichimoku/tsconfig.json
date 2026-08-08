@@ -7,6 +7,6 @@
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["tests"],
+  "exclude": ["src/**/*.test.ts"],
   "references": [{ "path": "../domain" }, { "path": "../indicators" }]
 }
