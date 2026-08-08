@@ -7,11 +7,11 @@ export default tseslint.config(
   },
   js.configs.recommended,
   {
-    files: ['packages/**/*.ts'],
+    files: ['packages/**/*.ts', 'vitest.config.ts'],
     extends: tseslint.configs.strictTypeChecked,
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        project: ['./tsconfig.test.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
