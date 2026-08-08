@@ -1,0 +1,55 @@
+{
+  "strategyKey": "ICHIMOKU_TREND_BREAKOUT_V1",
+  "version": "1.0.0-research",
+  "timing": {
+    "decisionMode": "ON_SIGNAL_CANDLE_CLOSE",
+    "trendTimeframe": "4h",
+    "signalTimeframe": "1h",
+    "entryExecutionModel": "NEXT_BAR_OPEN",
+    "signalTtlBars": 1
+  },
+  "ichimoku": {
+    "tenkanPeriod": 9,
+    "kijunPeriod": 26,
+    "senkouBPeriod": 52,
+    "displacement": 26,
+    "kijunSlopeLookback": 5
+  },
+  "breakout": {
+    "lookback": 20,
+    "comparison": "STRICT_CLOSE_VS_PREVIOUS_RANGE"
+  },
+  "chikou": {
+    "enabledForScore": true,
+    "longRule": "CURRENT_CLOSE_GT_HIGH_T_MINUS_DISPLACEMENT",
+    "shortRule": "CURRENT_CLOSE_LT_LOW_T_MINUS_DISPLACEMENT"
+  },
+  "volatility": {
+    "atrPeriod": 14,
+    "filterEnabled": false,
+    "percentileLookback": null
+  },
+  "scoring": {
+    "enabled": true,
+    "entryThresholdEnabled": false,
+    "threshold": null,
+    "version": "UNVALIDATED_V1"
+  },
+  "stopExit": {
+    "initialStop": "SIGNAL_H1_KIJUN_FIXED",
+    "trendExit": "H1_CLOSE_CROSS_KIJUN_THEN_NEXT_TRADABLE_PRICE",
+    "takeProfit": "NONE",
+    "breakEven": "NONE",
+    "intrabarConflictPolicy": "STOP_FIRST"
+  },
+  "risk": {
+    "riskPerTradePct": 0.5,
+    "maxOpenRiskPct": 2.0,
+    "maxOpenPositions": 4,
+    "riskGroupLimitsEnabled": true
+  },
+  "execution": {
+    "mode": "DISABLED",
+    "allowLiveTrading": false
+  }
+}
