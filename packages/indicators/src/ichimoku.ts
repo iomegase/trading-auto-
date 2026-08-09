@@ -1,0 +1,325 @@
+import { Temporal } from '@js-temporal/polyfill';
+import {
+  asDecimalString,
+  asInstantString,
+  assertCandleSeries,
+  type Candle,
+  type DecimalString,
+  type InstantString,
+  type Timeframe,
+} from '@trading-auto/domain';
+import { Decimal } from 'decimal.js';
+import { z } from 'zod';
+
+export interface IchimokuConfig {
+  readonly version: string;
+  readonly tenkanPeriod: number;
+  readonly kijunPeriod: number;
+  readonly senkouBPeriod: number;
+  readonly displacement: number;
+  readonly kijunSlopeLookback: number;
+}
+
+export type CloudDirection =
+  'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'INSUFFICIENT_DATA';
+
+export interface IchimokuPoint {
+  readonly instrumentId: string;
+  readonly timeframe: Timeframe;
+  readonly candleCloseTime: InstantString;
+  readonly computedAt: InstantString;
+  readonly configVersion: string;
+  readonly tenkan: number | null;
+  readonly kijun: number | null;
+  readonly kijunPrice: DecimalString | null;
+  readonly senkouARaw: number | null;
+  readonly senkouBRaw: number | null;
+  readonly projectedSenkouA: number | null;
+  readonly projectedSenkouB: number | null;
+  readonly currentCloudA: number | null;
+  readonly currentCloudB: number | null;
+  readonly currentCloudTop: number | null;
+  readonly currentCloudBottom: number | null;
+  readonly projectedCloudTop: number | null;
+  readonly projectedCloudBottom: number | null;
+  readonly projectedCloudDirection: CloudDirection;
+  readonly chikouReferenceIndex: number | null;
+  readonly chikouReferenceClose: number | null;
+  readonly chikouReferenceHigh: number | null;
+  readonly chikouReferenceLow: number | null;
+  readonly kijunSlope: number | null;
+}
+
+const positiveSafeInteger = z
+  .number()
+  .int()
+  .positive()
+  .max(Number.MAX_SAFE_INTEGER);
+const configSchema = z
+  .object({
+    version: z.string().trim().min(1),
+    tenkanPeriod: positiveSafeInteger,
+    kijunPeriod: positiveSafeInteger,
+    senkouBPeriod: positiveSafeInteger,
+    displacement: positiveSafeInteger,
+    kijunSlopeLookback: positiveSafeInteger,
+  })
+  .strict();
+
+function validateConfig(config: Readonly<IchimokuConfig>): IchimokuConfig {
+  const result = configSchema.safeParse(config);
+
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    const field = issue?.path[0] ?? 'config';
+    throw new RangeError(`${String(field)} is invalid.`);
+  }
+
+  return result.data;
+}
+
+const IndicatorDecimal = Decimal.clone({
+  precision: 1_000_000_000,
+  maxE: 9e15,
+  minE: -9e15,
+});
+
+interface NumericCandle {
+  readonly high: number;
+  readonly low: number;
+  readonly close: number;
+}
+
+function finitePrice(
+  candle: Readonly<Candle>,
+  index: number,
+  field: 'high' | 'low' | 'close',
+): number {
+  const value = Number(candle[field]);
+
+  if (!Number.isFinite(value) || value === 0) {
+    throw new RangeError(
+      `candle ${String(index)} ${field} must be representable as a finite number.`,
+    );
+  }
+
+  return value;
+}
+
+function numericCandle(candle: Readonly<Candle>, index: number): NumericCandle {
+  return Object.freeze({
+    high: finitePrice(candle, index, 'high'),
+    low: finitePrice(candle, index, 'low'),
+    close: finitePrice(candle, index, 'close'),
+  });
+}
+
+function finiteMidpoint(first: number, second: number): number {
+  const lower = Math.min(first, second);
+  const upper = Math.max(first, second);
+  const midpoint = lower + (upper - lower) / 2;
+
+  if (!Number.isFinite(midpoint)) {
+    throw new RangeError('Ichimoku midpoint must be finite.');
+  }
+
+  return midpoint;
+}
+
+function itemAt<T>(items: readonly T[], index: number): T {
+  const item = items[index];
+
+  if (item === undefined) {
+    throw new RangeError(`Expected an item at index ${String(index)}.`);
+  }
+
+  return item;
+}
+
+function midpointAt(
+  candles: readonly NumericCandle[],
+  index: number,
+  period: number,
+): number | null {
+  const start = index - period + 1;
+
+  if (start < 0) {
+    return null;
+  }
+
+  let highestHigh = Number.NEGATIVE_INFINITY;
+  let lowestLow = Number.POSITIVE_INFINITY;
+
+  for (let windowIndex = start; windowIndex <= index; windowIndex += 1) {
+    const candle = itemAt(candles, windowIndex);
+    highestHigh = Math.max(highestHigh, candle.high);
+    lowestLow = Math.min(lowestLow, candle.low);
+  }
+
+  return finiteMidpoint(highestHigh, lowestLow);
+}
+
+function decimalMidpointAt(
+  candles: readonly Candle[],
+  index: number,
+  period: number,
+): DecimalString | null {
+  const start = index - period + 1;
+
+  if (start < 0) {
+    return null;
+  }
+
+  let highestHigh: Decimal | null = null;
+  let lowestLow: Decimal | null = null;
+
+  for (let windowIndex = start; windowIndex <= index; windowIndex += 1) {
+    const candle = itemAt(candles, windowIndex);
+    const high = new IndicatorDecimal(candle.high);
+    const low = new IndicatorDecimal(candle.low);
+    highestHigh =
+      highestHigh === null ? high : IndicatorDecimal.max(highestHigh, high);
+    lowestLow = lowestLow === null ? low : IndicatorDecimal.min(lowestLow, low);
+  }
+
+  if (highestHigh === null || lowestLow === null) {
+    throw new RangeError('Expected an exact Ichimoku midpoint window.');
+  }
+
+  return asDecimalString(
+    lowestLow.plus(highestHigh.minus(lowestLow).div(2)).toFixed(),
+  );
+}
+
+function prefixAvailability(
+  candles: readonly Candle[],
+): readonly InstantString[] {
+  let latest: InstantString | null = null;
+
+  return candles.map((candle) => {
+    const availableAt = asInstantString(candle.availableAt);
+
+    if (latest === null || Temporal.Instant.compare(availableAt, latest) > 0) {
+      latest = availableAt;
+    }
+
+    return latest;
+  });
+}
+
+function cloudDirection(
+  senkouA: number | null,
+  senkouB: number | null,
+): CloudDirection {
+  if (senkouA === null || senkouB === null) {
+    return 'INSUFFICIENT_DATA';
+  }
+
+  if (senkouA > senkouB) {
+    return 'BULLISH';
+  }
+
+  if (senkouA < senkouB) {
+    return 'BEARISH';
+  }
+
+  return 'NEUTRAL';
+}
+
+function cloudTop(
+  senkouA: number | null,
+  senkouB: number | null,
+): number | null {
+  return senkouA === null || senkouB === null
+    ? null
+    : Math.max(senkouA, senkouB);
+}
+
+function cloudBottom(
+  senkouA: number | null,
+  senkouB: number | null,
+): number | null {
+  return senkouA === null || senkouB === null
+    ? null
+    : Math.min(senkouA, senkouB);
+}
+
+export function computeIchimoku(
+  candles: readonly Candle[],
+  config: Readonly<IchimokuConfig>,
+): readonly IchimokuPoint[] {
+  const validatedConfig = validateConfig(config);
+  assertCandleSeries(candles);
+
+  const numericCandles = candles.map(numericCandle);
+  const computedAt = prefixAvailability(candles);
+
+  const tenkan = numericCandles.map((_, index) =>
+    midpointAt(numericCandles, index, validatedConfig.tenkanPeriod),
+  );
+  const kijun = numericCandles.map((_, index) =>
+    midpointAt(numericCandles, index, validatedConfig.kijunPeriod),
+  );
+  const kijunPrice = candles.map((_, index) =>
+    decimalMidpointAt(candles, index, validatedConfig.kijunPeriod),
+  );
+  const senkouBRaw = numericCandles.map((_, index) =>
+    midpointAt(numericCandles, index, validatedConfig.senkouBPeriod),
+  );
+  const senkouARaw = candles.map((_, index) => {
+    const tenkanValue = itemAt(tenkan, index);
+    const kijunValue = itemAt(kijun, index);
+
+    return tenkanValue === null || kijunValue === null
+      ? null
+      : finiteMidpoint(tenkanValue, kijunValue);
+  });
+
+  const points = candles.map((candle, index): Readonly<IchimokuPoint> => {
+    const rawA = itemAt(senkouARaw, index);
+    const rawB = itemAt(senkouBRaw, index);
+    const displacedIndex = index - validatedConfig.displacement;
+    const currentA =
+      displacedIndex < 0 ? null : itemAt(senkouARaw, displacedIndex);
+    const currentB =
+      displacedIndex < 0 ? null : itemAt(senkouBRaw, displacedIndex);
+    const chikouCandle =
+      displacedIndex < 0 ? null : itemAt(numericCandles, displacedIndex);
+    const slopeReferenceIndex = index - validatedConfig.kijunSlopeLookback;
+    const currentKijun = itemAt(kijun, index);
+    const referenceKijun =
+      slopeReferenceIndex < 0 ? null : itemAt(kijun, slopeReferenceIndex);
+
+    return Object.freeze({
+      instrumentId: candle.instrumentId,
+      timeframe: candle.timeframe,
+      candleCloseTime: asInstantString(candle.closeTime),
+      computedAt: itemAt(computedAt, index),
+      configVersion: validatedConfig.version,
+      tenkan: itemAt(tenkan, index),
+      kijun: currentKijun,
+      kijunPrice: itemAt(kijunPrice, index),
+      senkouARaw: rawA,
+      senkouBRaw: rawB,
+      projectedSenkouA: rawA,
+      projectedSenkouB: rawB,
+      currentCloudA: currentA,
+      currentCloudB: currentB,
+      currentCloudTop: cloudTop(currentA, currentB),
+      currentCloudBottom: cloudBottom(currentA, currentB),
+      projectedCloudTop: cloudTop(rawA, rawB),
+      projectedCloudBottom: cloudBottom(rawA, rawB),
+      projectedCloudDirection: cloudDirection(rawA, rawB),
+      chikouReferenceIndex: chikouCandle === null ? null : displacedIndex,
+      chikouReferenceClose: chikouCandle === null ? null : chikouCandle.close,
+      chikouReferenceHigh: chikouCandle === null ? null : chikouCandle.high,
+      chikouReferenceLow: chikouCandle === null ? null : chikouCandle.low,
+      kijunSlope:
+        currentKijun === null || referenceKijun === null
+          ? null
+          : currentKijun - referenceKijun,
+    });
+  });
+
+  return Object.freeze(points);
+}

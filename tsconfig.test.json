@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@trading-auto/domain": ["./packages/domain/src/index.ts"],
+      "@trading-auto/calendars": ["./packages/calendars/src/index.ts"],
+      "@trading-auto/indicators": ["./packages/indicators/src/index.ts"],
+      "@trading-auto/strategy-ichimoku": [
+        "./packages/strategy-ichimoku/src/index.ts"
+      ],
+      "@trading-auto/test-helpers": ["./packages/test-helpers/src/index.ts"]
+    },
+    "types": ["node"]
+  },
+  "include": ["packages/**/*.ts", "vitest.config.ts"],
+  "exclude": ["**/dist/**"]
+}
