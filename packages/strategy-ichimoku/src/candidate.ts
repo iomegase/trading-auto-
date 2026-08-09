@@ -58,6 +58,19 @@ function assertDirection(value: unknown): asserts value is CandidateDirection {
   }
 }
 
+function assertRegime(value: unknown): asserts value is MarketRegime {
+  if (
+    value !== 'BULLISH' &&
+    value !== 'BEARISH' &&
+    value !== 'NEUTRAL' &&
+    value !== 'INSUFFICIENT_DATA'
+  ) {
+    throw new RangeError(
+      'regime must be BULLISH, BEARISH, NEUTRAL, or INSUFFICIENT_DATA.',
+    );
+  }
+}
+
 function candleAt(candles: readonly Candle[], index: number): Candle {
   const candle = candles[index];
 
@@ -82,6 +95,7 @@ export function evaluateH1Candidate(
   }
 
   assertDirection(input.direction);
+  assertRegime(input.regime);
 
   if (
     typeof input.strategyVersion !== 'string' ||

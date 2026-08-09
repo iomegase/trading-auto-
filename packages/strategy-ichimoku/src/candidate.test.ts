@@ -423,6 +423,15 @@ describe('evaluateH1Candidate', () => {
     expect(() => evaluateH1Candidate(input)).toThrow(/direction/);
   });
 
+  it('rejects an invalid runtime regime', () => {
+    const input = {
+      ...longInput(),
+      regime: 'SIDEWAYS',
+    } as unknown as H1CandidateInput;
+
+    expect(() => evaluateH1Candidate(input)).toThrow(/regime/);
+  });
+
   it.each(['', '   '])(
     'rejects blank strategy version %j',
     (strategyVersion) => {
