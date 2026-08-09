@@ -44,6 +44,30 @@ function candleAt(
   });
 }
 
+function candleFromStrings(
+  index: number,
+  prices: Readonly<{
+    high: string;
+    low: string;
+    close: string;
+  }>,
+): Readonly<Candle> {
+  const openTime = timestampAt(index);
+  const closeTime = timestampAt(index + 1);
+
+  return buildCandle({
+    sourceTimestamp: openTime,
+    openTime,
+    closeTime,
+    availableAt: closeTime,
+    ingestedAt: closeTime,
+    open: prices.close,
+    high: prices.high,
+    low: prices.low,
+    close: prices.close,
+  });
+}
+
 function trendingCandles(
   length: number,
   closeAt: (index: number) => number = (index) => index + 10,
@@ -103,6 +127,90 @@ describe('computeIchimoku', () => {
     expect(itemAt(points, 51).projectedSenkouB).toBe(
       itemAt(points, 51).senkouBRaw,
     );
+  });
+
+  it('uses internal asymmetric high and low extrema rather than closes', () => {
+    const candles = [
+      candleAt(0, { high: 100, low: 90, close: 95 }),
+      candleAt(1, { high: 160, low: 100, close: 110 }),
+      candleAt(2, { high: 130, low: 20, close: 100 }),
+      candleAt(3, { high: 120, low: 80, close: 100 }),
+      candleAt(4, { high: 125, low: 70, close: 100 }),
+      candleAt(5, { high: 110, low: 60, close: 100 }),
+    ];
+    const config: IchimokuConfig = {
+      tenkanPeriod: 4,
+      kijunPeriod: 5,
+      senkouBPeriod: 6,
+      displacement: 1,
+      kijunSlopeLookback: 1,
+    };
+
+    const point = itemAt(computeIchimoku(candles, config), 5);
+
+    expect(point.tenkan).toBe(75);
+    expect(point.kijun).toBe(90);
+    expect(point.senkouARaw).toBe(82.5);
+    expect(point.senkouBRaw).toBe(90);
+  });
+
+  it('rejects a canonical price that cannot be represented as a finite number', () => {
+    const tooLarge = `1${'0'.repeat(309)}`;
+    const candle = candleFromStrings(0, {
+      high: tooLarge,
+      low: tooLarge,
+      close: tooLarge,
+    });
+    const config: IchimokuConfig = {
+      tenkanPeriod: 1,
+      kijunPeriod: 1,
+      senkouBPeriod: 1,
+      displacement: 1,
+      kijunSlopeLookback: 1,
+    };
+    let received: unknown;
+
+    try {
+      computeIchimoku([candle], config);
+    } catch (error) {
+      received = error;
+    }
+
+    expect(received).toBeInstanceOf(RangeError);
+    expect((received as Error).message).toContain('candle 0 high');
+  });
+
+  it('computes a finite overflow-safe midpoint for finite prices near 1e308', () => {
+    const low = `1${'0'.repeat(308)}`;
+    const high = `11${'0'.repeat(307)}`;
+    const candle = candleFromStrings(0, { high, low, close: low });
+    const config: IchimokuConfig = {
+      tenkanPeriod: 1,
+      kijunPeriod: 1,
+      senkouBPeriod: 1,
+      displacement: 1,
+      kijunSlopeLookback: 1,
+    };
+    const point = itemAt(computeIchimoku([candle], config), 0);
+    const expected = Number(low) + (Number(high) - Number(low)) / 2;
+
+    expect(point.tenkan).toBe(expected);
+    expect(point.kijun).toBe(expected);
+    expect(point.senkouARaw).toBe(expected);
+    expect(point.senkouBRaw).toBe(expected);
+    expect(Number.isFinite(expected)).toBe(true);
+  });
+
+  it('never emits a non-finite numeric value for accepted inputs', () => {
+    const points = computeIchimoku(trendingCandles(90), baselineConfig);
+
+    for (const point of points) {
+      for (const value of Object.values(point)) {
+        if (typeof value === 'number') {
+          expect(Number.isFinite(value)).toBe(true);
+        }
+      }
+    }
   });
 
   it('aligns current-cloud values with raw spans computed displacement candles ago', () => {
@@ -250,6 +358,7 @@ describe('computeIchimoku', () => {
     ['displacement', 0],
     ['displacement', Number.POSITIVE_INFINITY],
     ['kijunSlopeLookback', 0],
+    ['kijunSlopeLookback', Number.MAX_SAFE_INTEGER + 1],
   ] as const)('rejects invalid %s config values', (field, value) => {
     const invalidConfig = { ...baselineConfig, [field]: value };
     let received: unknown;

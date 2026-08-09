@@ -45,10 +45,52 @@ function validateConfig(config: Readonly<IchimokuConfig>): void {
   for (const field of configFields) {
     const value = config[field];
 
-    if (!Number.isInteger(value) || value <= 0) {
-      throw new RangeError(`${field} must be a positive integer.`);
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new RangeError(`${field} must be a positive safe integer.`);
     }
   }
+}
+
+interface NumericCandle {
+  readonly high: number;
+  readonly low: number;
+  readonly close: number;
+}
+
+function finitePrice(
+  candle: Readonly<Candle>,
+  index: number,
+  field: 'high' | 'low' | 'close',
+): number {
+  const value = Number(candle[field]);
+
+  if (!Number.isFinite(value)) {
+    throw new RangeError(
+      `candle ${String(index)} ${field} must be representable as a finite number.`,
+    );
+  }
+
+  return value;
+}
+
+function numericCandle(candle: Readonly<Candle>, index: number): NumericCandle {
+  return Object.freeze({
+    high: finitePrice(candle, index, 'high'),
+    low: finitePrice(candle, index, 'low'),
+    close: finitePrice(candle, index, 'close'),
+  });
+}
+
+function finiteMidpoint(first: number, second: number): number {
+  const lower = Math.min(first, second);
+  const upper = Math.max(first, second);
+  const midpoint = lower + (upper - lower) / 2;
+
+  if (!Number.isFinite(midpoint)) {
+    throw new RangeError('Ichimoku midpoint must be finite.');
+  }
+
+  return midpoint;
 }
 
 function itemAt<T>(items: readonly T[], index: number): T {
@@ -62,7 +104,7 @@ function itemAt<T>(items: readonly T[], index: number): T {
 }
 
 function midpointAt(
-  candles: readonly Candle[],
+  candles: readonly NumericCandle[],
   index: number,
   period: number,
 ): number | null {
@@ -77,11 +119,11 @@ function midpointAt(
 
   for (let windowIndex = start; windowIndex <= index; windowIndex += 1) {
     const candle = itemAt(candles, windowIndex);
-    highestHigh = Math.max(highestHigh, Number(candle.high));
-    lowestLow = Math.min(lowestLow, Number(candle.low));
+    highestHigh = Math.max(highestHigh, candle.high);
+    lowestLow = Math.min(lowestLow, candle.low);
   }
 
-  return (highestHigh + lowestLow) / 2;
+  return finiteMidpoint(highestHigh, lowestLow);
 }
 
 function cloudDirection(
@@ -127,14 +169,16 @@ export function computeIchimoku(
 ): readonly IchimokuPoint[] {
   validateConfig(config);
 
-  const tenkan = candles.map((_, index) =>
-    midpointAt(candles, index, config.tenkanPeriod),
+  const numericCandles = candles.map(numericCandle);
+
+  const tenkan = numericCandles.map((_, index) =>
+    midpointAt(numericCandles, index, config.tenkanPeriod),
   );
-  const kijun = candles.map((_, index) =>
-    midpointAt(candles, index, config.kijunPeriod),
+  const kijun = numericCandles.map((_, index) =>
+    midpointAt(numericCandles, index, config.kijunPeriod),
   );
-  const senkouBRaw = candles.map((_, index) =>
-    midpointAt(candles, index, config.senkouBPeriod),
+  const senkouBRaw = numericCandles.map((_, index) =>
+    midpointAt(numericCandles, index, config.senkouBPeriod),
   );
   const senkouARaw = candles.map((_, index) => {
     const tenkanValue = itemAt(tenkan, index);
@@ -142,7 +186,7 @@ export function computeIchimoku(
 
     return tenkanValue === null || kijunValue === null
       ? null
-      : (tenkanValue + kijunValue) / 2;
+      : finiteMidpoint(tenkanValue, kijunValue);
   });
 
   const points = candles.map((candle, index): Readonly<IchimokuPoint> => {
@@ -154,7 +198,7 @@ export function computeIchimoku(
     const currentB =
       displacedIndex < 0 ? null : itemAt(senkouBRaw, displacedIndex);
     const chikouCandle =
-      displacedIndex < 0 ? null : itemAt(candles, displacedIndex);
+      displacedIndex < 0 ? null : itemAt(numericCandles, displacedIndex);
     const slopeReferenceIndex = index - config.kijunSlopeLookback;
     const currentKijun = itemAt(kijun, index);
     const referenceKijun =
@@ -176,12 +220,9 @@ export function computeIchimoku(
       projectedCloudBottom: cloudBottom(rawA, rawB),
       projectedCloudDirection: cloudDirection(rawA, rawB),
       chikouReferenceIndex: chikouCandle === null ? null : displacedIndex,
-      chikouReferenceClose:
-        chikouCandle === null ? null : Number(chikouCandle.close),
-      chikouReferenceHigh:
-        chikouCandle === null ? null : Number(chikouCandle.high),
-      chikouReferenceLow:
-        chikouCandle === null ? null : Number(chikouCandle.low),
+      chikouReferenceClose: chikouCandle === null ? null : chikouCandle.close,
+      chikouReferenceHigh: chikouCandle === null ? null : chikouCandle.high,
+      chikouReferenceLow: chikouCandle === null ? null : chikouCandle.low,
       kijunSlope:
         currentKijun === null || referenceKijun === null
           ? null
