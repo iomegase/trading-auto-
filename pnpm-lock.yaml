@@ -78,6 +78,9 @@ importers:
         specifier: 10.6.0
         version: 10.6.0
     devDependencies:
+      '@trading-auto/calendars':
+        specifier: workspace:*
+        version: link:../calendars
       '@trading-auto/test-helpers':
         specifier: workspace:*
         version: link:../test-helpers
