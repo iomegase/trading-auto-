@@ -20,7 +20,7 @@ export function asInstantString(value: string): InstantString {
   }
 
   try {
-    Temporal.Instant.from(value);
+    return Temporal.Instant.from(value).toString() as InstantString;
   } catch {
     throw new DomainValidationError(
       'INVALID_INSTANT',
@@ -28,6 +28,4 @@ export function asInstantString(value: string): InstantString {
       { value },
     );
   }
-
-  return Temporal.Instant.from(value).toString() as InstantString;
 }

@@ -1,6 +1,6 @@
 import { Temporal } from '@js-temporal/polyfill';
 
-import type { Candle } from './candle.js';
+import { createCandle, type Candle, type CandleInput } from './candle.js';
 import type { Timeframe } from './time.js';
 
 export interface CandleSeriesExpectation {
@@ -19,31 +19,33 @@ function isArray(value: unknown): value is readonly unknown[] {
 }
 
 function candleAt(
-  candles: readonly Readonly<Candle>[],
+  candles: readonly unknown[],
   index: number,
 ): Readonly<Candle> {
-  const candle = candles[index];
-
-  if (candle === undefined) {
+  if (!Object.hasOwn(candles, index)) {
     invalidSeries(index, 'the dense array invariant');
   }
 
-  return candle;
+  const candidate = candles[index];
+
+  try {
+    createCandle(candidate as CandleInput);
+  } catch {
+    invalidSeries(index, 'the valid Candle invariant');
+  }
+
+  return candidate as Readonly<Candle>;
 }
 
 export function assertCandleSeries(
-  candles: readonly Readonly<Candle>[],
+  candles: unknown,
   expectation: CandleSeriesExpectation = {},
-): void {
+): asserts candles is readonly Readonly<Candle>[] {
   if (!isArray(candles)) {
     throw new RangeError('Candle series must be a dense array.');
   }
 
   for (let index = 0; index < candles.length; index += 1) {
-    if (!Object.hasOwn(candles, index)) {
-      invalidSeries(index, 'the dense array invariant');
-    }
-
     const candle = candleAt(candles, index);
     const first = candleAt(candles, 0);
 

@@ -30,6 +30,27 @@ function candle(overrides: Partial<CandleInput> = {}): Readonly<Candle> {
 }
 
 describe('assertCandleSeries', () => {
+  it.each([
+    ['null', null],
+    ['an empty object', {}],
+    ['a number', 42],
+    ['explicit undefined', undefined],
+    ['an invalid instrument', { ...validInput, instrumentId: '' }],
+    ['an invalid timeframe', { ...validInput, timeframe: '15m' }],
+    ['an invalid open instant', { ...validInput, openTime: 'not-an-instant' }],
+    [
+      'an invalid close instant',
+      { ...validInput, closeTime: 'not-an-instant' },
+    ],
+  ])('rejects %s at index zero', (_label, value) => {
+    const action = () => {
+      assertCandleSeries([value]);
+    };
+
+    expect(action).toThrow(RangeError);
+    expect(action).toThrow(/index 0.*valid candle/i);
+  });
+
   it('rejects a sparse array', () => {
     const candles = new Array<Readonly<Candle>>(2);
     candles[0] = candle();
