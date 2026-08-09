@@ -2,6 +2,8 @@ import {
   asDecimalString,
   asInstantString,
   type Candle,
+  type DecimalString,
+  type InstantString,
 } from '@trading-auto/domain';
 import type { IchimokuConfig } from '@trading-auto/indicators';
 import { buildCandle } from '@trading-auto/test-helpers';
@@ -141,6 +143,26 @@ describe('evaluateIchimokuDecision', () => {
     });
   });
 
+  it('canonicalizes the unavailable signal close time from runtime input', () => {
+    const input = validInput({ h4Candles: [] });
+    const h1Candles = [...input.h1Candles];
+    const signal = h1Candles[input.signalIndex];
+
+    if (signal === undefined) {
+      throw new RangeError('Expected the signal fixture.');
+    }
+
+    h1Candles[input.signalIndex] = {
+      ...signal,
+      closeTime: '2026-01-02T08:00:00+01:00' as InstantString,
+    };
+
+    expect(evaluateIchimokuDecision({ ...input, h1Candles })).toMatchObject({
+      status: 'UNAVAILABLE',
+      signalCandleCloseTime: '2026-01-02T07:00:00Z',
+    });
+  });
+
   it('approves a complete SHORT decision through the same causal boundary', () => {
     expect(
       evaluateIchimokuDecision(
@@ -169,6 +191,35 @@ describe('evaluateIchimokuDecision', () => {
       status: 'UNAVAILABLE',
       reason: 'INSUFFICIENT_DATA',
     });
+  });
+
+  it('does not convert a closed H4 candle published after decision time', () => {
+    const decisionAt = asInstantString('2026-01-02T09:00:00Z');
+    const baselineInput = validInput({ decisionAt });
+    const baseline = evaluateIchimokuDecision(baselineInput);
+    const h4Candles = [...baselineInput.h4Candles];
+    const late = h4Candles[5];
+
+    if (late === undefined) {
+      throw new RangeError('Expected the late H4 fixture.');
+    }
+
+    const hugePrice = `1${'0'.repeat(400)}`;
+    h4Candles[5] = buildCandle({
+      ...late,
+      availableAt: '2026-01-02T10:00:00Z',
+      ingestedAt: '2026-01-02T10:00:00Z',
+      open: hugePrice,
+      high: hugePrice,
+      low: hugePrice,
+      close: hugePrice,
+      isClosed: true,
+    });
+
+    expect(evaluateIchimokuDecision({ ...baselineInput, h4Candles })).toEqual(
+      baseline,
+    );
+    expect(baseline.status).toBe('APPROVED');
   });
 
   it('rejects a candidate that would otherwise approve when its stop is invalid', () => {
@@ -237,4 +288,74 @@ describe('evaluateIchimokuDecision', () => {
       evaluateIchimokuDecision(validInput({ signalIndex: 7 })),
     ).toThrow(/signalIndex/);
   });
+
+  it.each([
+    {
+      label: 'unfinished signal candle',
+      build: () => {
+        const input = validInput({ h4Candles: [] });
+        const h1Candles = [...input.h1Candles];
+        const signal = h1Candles[input.signalIndex];
+
+        if (signal === undefined) {
+          throw new RangeError('Expected the signal fixture.');
+        }
+
+        h1Candles[input.signalIndex] = buildCandle({
+          ...signal,
+          isClosed: false,
+        });
+        return { ...input, h1Candles };
+      },
+      pattern: /closed/,
+    },
+    {
+      label: 'late signal candle',
+      build: () => {
+        const input = validInput({ h4Candles: [] });
+        const h1Candles = [...input.h1Candles];
+        const signal = h1Candles[input.signalIndex];
+
+        if (signal === undefined) {
+          throw new RangeError('Expected the signal fixture.');
+        }
+
+        h1Candles[input.signalIndex] = buildCandle({
+          ...signal,
+          availableAt: '2026-01-02T08:00:00Z',
+          ingestedAt: '2026-01-02T08:00:00Z',
+        });
+        return { ...input, h1Candles };
+      },
+      pattern: /availableAt|computedAt/,
+    },
+    {
+      label: 'zero breakout lookback',
+      build: () => validInput({ h4Candles: [], breakoutLookback: 0 }),
+      pattern: /lookback/,
+    },
+    {
+      label: 'malformed entry reference',
+      build: () =>
+        validInput({
+          h4Candles: [],
+          entryReference: 'not-a-decimal' as DecimalString,
+        }),
+      pattern: /entryReference/,
+    },
+    {
+      label: 'malformed tick size',
+      build: () =>
+        validInput({
+          h4Candles: [],
+          tickSize: 'not-a-decimal' as DecimalString,
+        }),
+      pattern: /tickSize/,
+    },
+  ])(
+    'validates $label before returning H4 unavailability',
+    ({ build, pattern }) => {
+      expect(() => evaluateIchimokuDecision(build())).toThrow(pattern);
+    },
+  );
 });

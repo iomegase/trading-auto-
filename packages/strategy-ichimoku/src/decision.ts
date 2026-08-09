@@ -105,23 +105,55 @@ function assertSignalIndex(index: number, length: number): void {
   }
 }
 
-function causalH4Prefix(
+type H4Preparation =
+  | {
+      readonly status: 'READY';
+      readonly candles: readonly Candle[];
+    }
+  | {
+      readonly status: 'UNAVAILABLE';
+      readonly reason: 'NO_CLOSED_TREND_CANDLE' | 'INSUFFICIENT_DATA';
+    };
+
+function prepareH4Prefix(
   candles: readonly Candle[],
   decisionAt: InstantString,
-): readonly Candle[] {
-  let prefixLength = 0;
+): H4Preparation {
+  let latestEligibleIndex: number | null = null;
 
   for (let index = 0; index < candles.length; index += 1) {
     const candle = itemAt(candles, index, 'an H4 candle');
 
-    if (Temporal.Instant.compare(candle.closeTime, decisionAt) > 0) {
-      break;
+    if (
+      candle.isClosed &&
+      Temporal.Instant.compare(candle.availableAt, decisionAt) <= 0
+    ) {
+      latestEligibleIndex = index;
     }
-
-    prefixLength = index + 1;
   }
 
-  return candles.slice(0, prefixLength);
+  if (latestEligibleIndex === null) {
+    return {
+      status: 'UNAVAILABLE',
+      reason: 'NO_CLOSED_TREND_CANDLE',
+    };
+  }
+
+  for (let index = 0; index <= latestEligibleIndex; index += 1) {
+    const candle = itemAt(candles, index, 'an H4 candle');
+
+    if (
+      !candle.isClosed ||
+      Temporal.Instant.compare(candle.availableAt, decisionAt) > 0
+    ) {
+      return { status: 'UNAVAILABLE', reason: 'INSUFFICIENT_DATA' };
+    }
+  }
+
+  return {
+    status: 'READY',
+    candles: candles.slice(0, latestEligibleIndex + 1),
+  };
 }
 
 function frozenStop(stop: StopProposal): Readonly<StopProposal> {
@@ -140,7 +172,7 @@ function unavailableResult(
     reason,
     direction: input.direction,
     decisionAt,
-    signalCandleCloseTime: signalCandle.closeTime,
+    signalCandleCloseTime: asInstantString(signalCandle.closeTime),
     datasetVersion: input.datasetVersion,
     strategyVersion: input.strategyVersion,
     indicatorConfigVersion: signalPoint.configVersion,
@@ -170,12 +202,48 @@ export function evaluateIchimokuDecision(
     input.signalIndex,
     'an H1 Ichimoku point',
   );
+  const candidateBase = {
+    direction: input.direction,
+    candles: input.h1Candles,
+    index: input.signalIndex,
+    indicator: signalPoint,
+    breakoutLookback: input.breakoutLookback,
+    decisionAt,
+    strategyVersion: input.strategyVersion,
+    datasetVersion: input.datasetVersion,
+  } as const;
+
+  evaluateH1Candidate({
+    ...candidateBase,
+    regime: 'INSUFFICIENT_DATA',
+    trendCandleCloseTime: decisionAt,
+  });
+  const stop = frozenStop(
+    proposeKijunStop(
+      input.direction,
+      signalPoint.kijunPrice,
+      input.entryReference,
+      input.tickSize,
+    ),
+  );
 
   assertCandleSeries(input.h4Candles, {
     instrumentId: signalCandle.instrumentId,
     timeframe: '4h',
   });
-  const h4Candles = causalH4Prefix(input.h4Candles, decisionAt);
+  const h4Preparation = prepareH4Prefix(input.h4Candles, decisionAt);
+
+  if (h4Preparation.status === 'UNAVAILABLE') {
+    return unavailableResult(
+      input,
+      decisionAt,
+      signalCandle,
+      signalPoint,
+      h4Preparation.reason,
+    );
+  }
+
+  const h4Candles = h4Preparation.candles;
   const h4Points = computeIchimoku(h4Candles, input.indicatorConfig);
   const selection = selectLatestAvailableH4Snapshot(
     h4Candles,
@@ -196,25 +264,10 @@ export function evaluateIchimokuDecision(
 
   const regime = evaluateH4Regime(selection.candle, selection.point);
   const candidate = evaluateH1Candidate({
-    direction: input.direction,
+    ...candidateBase,
     regime,
-    candles: input.h1Candles,
-    index: input.signalIndex,
-    indicator: signalPoint,
-    breakoutLookback: input.breakoutLookback,
-    decisionAt,
     trendCandleCloseTime: selection.candle.closeTime,
-    strategyVersion: input.strategyVersion,
-    datasetVersion: input.datasetVersion,
   });
-  const stop = frozenStop(
-    proposeKijunStop(
-      input.direction,
-      signalPoint.kijunPrice,
-      input.entryReference,
-      input.tickSize,
-    ),
-  );
   const reasons: IchimokuDecisionReason[] = [...candidate.reasons];
 
   if (stop.status === 'INVALID_INITIAL_STOP') {

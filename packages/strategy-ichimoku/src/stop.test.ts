@@ -61,6 +61,25 @@ describe('proposeKijunStop', () => {
     });
   });
 
+  it('still validates entry and tick when Kijun is missing', () => {
+    expect(() =>
+      proposeKijunStop(
+        'LONG',
+        null,
+        'not-a-decimal' as DecimalString,
+        price('0.1'),
+      ),
+    ).toThrow(/entryReference/);
+    expect(() =>
+      proposeKijunStop(
+        'LONG',
+        null,
+        price('100'),
+        'not-a-decimal' as DecimalString,
+      ),
+    ).toThrow(/tickSize/);
+  });
+
   it('rejects a malformed runtime Kijun as an invalid initial stop', () => {
     expect(
       proposeKijunStop(

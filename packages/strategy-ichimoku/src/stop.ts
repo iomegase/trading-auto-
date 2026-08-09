@@ -38,18 +38,6 @@ export function proposeKijunStop(
 ): StopProposal {
   assertDirection(direction);
 
-  let kijun: DecimalString;
-
-  try {
-    if (kijunPrice === null) {
-      return { status: 'INVALID_INITIAL_STOP' };
-    }
-
-    kijun = asDecimalString(kijunPrice);
-  } catch {
-    return { status: 'INVALID_INITIAL_STOP' };
-  }
-
   let entry: DecimalString;
   let tick: DecimalString;
 
@@ -65,18 +53,34 @@ export function proposeKijunStop(
     throw new RangeError('tickSize must be a canonical decimal string.');
   }
 
+  const InputDecimal = exactDecimalConstructor(entry, tick);
+  const inputEntryDecimal = new InputDecimal(entry);
+  const inputTickDecimal = new InputDecimal(tick);
+
+  if (!inputEntryDecimal.gt(0)) {
+    throw new RangeError('entryReference must be positive.');
+  }
+
+  if (!inputTickDecimal.gt(0)) {
+    throw new RangeError('tickSize must be positive.');
+  }
+
+  let kijun: DecimalString;
+
+  try {
+    if (kijunPrice === null) {
+      return { status: 'INVALID_INITIAL_STOP' };
+    }
+
+    kijun = asDecimalString(kijunPrice);
+  } catch {
+    return { status: 'INVALID_INITIAL_STOP' };
+  }
+
   const StopDecimal = exactDecimalConstructor(kijun, entry, tick);
   const kijunDecimal = new StopDecimal(kijun);
   const entryDecimal = new StopDecimal(entry);
   const tickDecimal = new StopDecimal(tick);
-
-  if (!entryDecimal.gt(0)) {
-    throw new RangeError('entryReference must be positive.');
-  }
-
-  if (!tickDecimal.gt(0)) {
-    throw new RangeError('tickSize must be positive.');
-  }
 
   if (!kijunDecimal.gt(0)) {
     return { status: 'INVALID_INITIAL_STOP' };
