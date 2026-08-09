@@ -1,5 +1,12 @@
 # Core Research Milestone Implementation Plan
 
+> **Historical plan — superseded.** This file records the initial milestone
+> implementation sequence and must not be used as the current contract. The
+> authoritative follow-up is the
+> [Core Research Hardening Implementation Plan](2026-08-09-core-research-hardening.md),
+> which requires causal H1/H4 prefixes, versioned provenance, the internal raw
+> candidate evaluator, and exact tick-aligned stops.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a reproducible TypeScript research core that validates candles, selects only available closed trend candles, computes causally aligned Ichimoku values, evaluates the H4/H1 baseline, and proves those behaviors with regression and causality tests.

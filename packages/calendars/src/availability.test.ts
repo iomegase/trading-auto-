@@ -144,4 +144,46 @@ describe('selectLatestAvailableClosedCandle', () => {
       ),
     ).toBe(candleAt0930Utc);
   });
+
+  it('rejects a sparse candle array with a stable range error', () => {
+    const sparse: ReturnType<typeof buildCandle>[] = [];
+    sparse.length = 2;
+    sparse[0] = candleClosingAt('2026-01-01T08:00:00Z');
+
+    expect(() =>
+      selectLatestAvailableClosedCandle(
+        sparse,
+        asInstantString('2026-01-01T13:00:00Z'),
+      ),
+    ).toThrow(RangeError);
+  });
+
+  it('rejects a non-array candle collection', () => {
+    expect(() =>
+      selectLatestAvailableClosedCandle(
+        {} as unknown as ReturnType<typeof buildCandle>[],
+        asInstantString('2026-01-01T13:00:00Z'),
+      ),
+    ).toThrow(RangeError);
+  });
+
+  it('rejects an invalid runtime decision instant', () => {
+    expect(() =>
+      selectLatestAvailableClosedCandle(
+        [],
+        'not-an-instant' as ReturnType<typeof asInstantString>,
+      ),
+    ).toThrow(/instant/i);
+  });
+
+  it('rejects an invalid runtime candle', () => {
+    expect(() =>
+      selectLatestAvailableClosedCandle(
+        [{ instrumentId: 'EURUSD' }] as unknown as ReturnType<
+          typeof buildCandle
+        >[],
+        asInstantString('2026-01-01T13:00:00Z'),
+      ),
+    ).toThrow(/candle/i);
+  });
 });

@@ -43,9 +43,11 @@ TypeScript 6 reste installé uniquement pour l'API attendue par
 ## API de décision sûre
 
 `evaluateIchimokuDecision` est l'unique API publique pouvant produire une
-décision `APPROVED`. Elle reçoit les séries H1 et H4, un `decisionAt`, une
-configuration Ichimoku versionnée, les versions du dataset et de la stratégie,
-le prix de référence et le tick. Elle calcule uniquement les préfixes causaux,
+décision `APPROVED`. Son entrée complète
+[`IchimokuDecisionInput`](packages/strategy-ichimoku/src/decision.ts) contient la
+direction, les séries H1 et H4, `signalIndex`, `breakoutLookback`, `decisionAt`,
+la configuration Ichimoku versionnée, les versions du dataset et de la
+stratégie, le prix de référence et le tick. Elle calcule les préfixes causaux,
 sélectionne le dernier snapshot H4 disponible, puis évalue régime, candidat et
 stop dans cet ordre.
 
@@ -73,4 +75,4 @@ persistance, paper trading, connexion broker ou exécution live.
 
 Voir le [bilan de la milestone](docs/milestones/core-research.md), le
 [design approuvé](docs/superpowers/specs/2026-08-09-core-research-milestone-design.md)
-et le [plan d'implémentation](docs/superpowers/plans/2026-08-09-core-research-milestone.md).
+et le [plan de durcissement faisant autorité](docs/superpowers/plans/2026-08-09-core-research-hardening.md).
