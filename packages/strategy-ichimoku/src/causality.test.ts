@@ -1,18 +1,13 @@
-import { selectLatestAvailableClosedCandle } from '@trading-auto/calendars';
+import { Temporal } from '@js-temporal/polyfill';
 import { asDecimalString, type Candle } from '@trading-auto/domain';
-import { computeIchimoku, type IchimokuConfig } from '@trading-auto/indicators';
+import type { IchimokuConfig } from '@trading-auto/indicators';
 import { buildCandle } from '@trading-auto/test-helpers';
 import { describe, expect, it } from 'vitest';
 
-import {
-  detectBreakout,
-  evaluateH1Candidate,
-  evaluateH4Regime,
-  proposeKijunStop,
-} from './index.js';
+import { evaluateIchimokuDecision } from './index.js';
 
 const config: IchimokuConfig = {
-  version: 'causality-v1',
+  version: 'causality-9-26-52-v1',
   tenkanPeriod: 9,
   kijunPeriod: 26,
   senkouBPeriod: 52,
@@ -20,125 +15,104 @@ const config: IchimokuConfig = {
   kijunSlopeLookback: 3,
 };
 
+const h1DecisionIndex = 110;
+const h4CurrentWindowIndex = 95;
+
 function instantAt(hour: number): string {
   return new Date(Date.UTC(2026, 0, 1, hour)).toISOString();
 }
 
 function series(
+  timeframe: '1h' | '4h',
   length: number,
+  startHour: number,
+  durationHours: number,
   futureShockAt: number,
-  timeframe: '1h' | '4h' = '1h',
-  startHour = 0,
-  durationHours = 1,
+  unfinishedIndex: number | null = null,
+  lateAvailableIndex: number | null = null,
 ): readonly Candle[] {
   return Array.from({ length }, (_, index) => {
-    const baseline =
-      index < futureShockAt ? 100 + index * 2 : 10_000 - index * 50;
-    const close = String(baseline);
+    const baseline = 100 + index * 2;
+    const isFutureShock = index >= futureShockAt;
+    const close = isFutureShock ? `1${'0'.repeat(400)}` : String(baseline);
+    const openTime = instantAt(startHour + index * durationHours);
+    const closeTime = instantAt(startHour + (index + 1) * durationHours);
+    const availableAt =
+      index === lateAvailableIndex
+        ? instantAt(startHour + (index + 2) * durationHours)
+        : closeTime;
 
     return buildCandle({
       timeframe,
-      sourceTimestamp: instantAt(startHour + index * durationHours),
-      openTime: instantAt(startHour + index * durationHours),
-      closeTime: instantAt(startHour + (index + 1) * durationHours),
-      availableAt: instantAt(startHour + (index + 1) * durationHours),
-      ingestedAt: instantAt(startHour + (index + 1) * durationHours),
+      sourceTimestamp: openTime,
+      openTime,
+      closeTime,
+      availableAt,
+      ingestedAt: availableAt,
       open: close,
-      high: String(baseline + 1),
-      low: String(baseline - 1),
+      high: isFutureShock ? close : String(baseline + 1),
+      low: isFutureShock ? close : String(baseline - 1),
       close,
+      isClosed: index !== unfinishedIndex,
     });
   });
 }
 
-function itemAt<T>(items: readonly T[], index: number): T {
-  const item = items[index];
-
-  if (item === undefined) {
-    throw new RangeError(`Expected an item at index ${String(index)}.`);
-  }
-
-  return item;
-}
-
-function runPipeline(
-  h1Candles: readonly Candle[],
-  trendCandles: readonly Candle[],
-  decisionIndex: number,
-) {
-  const decisionCandle = itemAt(h1Candles, decisionIndex);
-  const decisionAt = decisionCandle.availableAt;
-  const trendCandle = selectLatestAvailableClosedCandle(
-    trendCandles,
-    decisionAt,
-  );
-
-  if (trendCandle === null) {
-    throw new RangeError('Expected an available trend candle.');
-  }
-
-  const signalIndicator = itemAt(
-    computeIchimoku(h1Candles, config),
-    decisionIndex,
-  );
-  const trendIndex = trendCandles.indexOf(trendCandle);
-  const trendIndicator = itemAt(
-    computeIchimoku(trendCandles, config),
-    trendIndex,
-  );
-  const breakout = detectBreakout(h1Candles, decisionIndex, 20);
-  const regime = evaluateH4Regime(trendCandle, trendIndicator);
-  const candidate = evaluateH1Candidate({
-    direction: 'LONG',
-    regime,
-    candles: h1Candles,
-    index: decisionIndex,
-    indicator: signalIndicator,
-    breakoutLookback: 20,
-    decisionAt,
-    trendCandleCloseTime: trendCandle.closeTime,
-    strategyVersion: 'ichimoku-v1',
-    datasetVersion: 'dataset-v1',
-  });
-  const stop = proposeKijunStop(
-    'LONG',
-    signalIndicator.kijunPrice,
-    decisionCandle.close,
-    asDecimalString('1'),
-  );
-
-  return {
-    signalIndicator,
-    trendCandle,
-    trendIndicator,
-    breakout,
-    regime,
-    candidate,
-    stop,
-  };
-}
-
 describe('full strategy causality', () => {
-  it('keeps every decision-time result unchanged when future candles are appended', () => {
-    const decisionIndex = 90;
-    const h1WithFuture = series(120, decisionIndex + 1);
-    const trendWithFuture = series(120, 112, '4h', -360, 4);
-    const h1AtDecision = h1WithFuture.slice(0, decisionIndex + 1);
-    const trendAtDecision = trendWithFuture.slice(0, 112);
+  it('keeps the entire decision unchanged when large H1 and H4 future shocks are appended', () => {
+    const h1WithFuture = series('1h', 140, 0, 1, h1DecisionIndex + 1);
+    const h4WithFuture = series(
+      '4h',
+      110,
+      -272,
+      4,
+      h4CurrentWindowIndex + 1,
+      h4CurrentWindowIndex,
+      h4CurrentWindowIndex - 1,
+    );
+    const h1AtDecision = h1WithFuture.slice(0, h1DecisionIndex + 1);
+    const h4AtDecision = h4WithFuture.slice(0, h4CurrentWindowIndex + 1);
+    const signalCandle = h1AtDecision[h1DecisionIndex];
 
-    const prefixResult = runPipeline(
-      h1AtDecision,
-      trendAtDecision,
-      decisionIndex,
-    );
-    const futureResult = runPipeline(
-      h1WithFuture,
-      trendWithFuture,
-      decisionIndex,
-    );
+    if (signalCandle === undefined) {
+      throw new RangeError('Expected the H1 decision candle.');
+    }
+
+    const input = {
+      direction: 'LONG' as const,
+      signalIndex: h1DecisionIndex,
+      indicatorConfig: config,
+      breakoutLookback: 20,
+      decisionAt: signalCandle.availableAt,
+      datasetVersion: 'causality-dataset-v1',
+      strategyVersion: 'ichimoku-v1',
+      entryReference: signalCandle.close,
+      tickSize: asDecimalString('1'),
+    };
+    const prefixResult = evaluateIchimokuDecision({
+      ...input,
+      h1Candles: h1AtDecision,
+      h4Candles: h4AtDecision,
+    });
+    const futureResult = evaluateIchimokuDecision({
+      ...input,
+      h1Candles: h1WithFuture,
+      h4Candles: h4WithFuture,
+    });
 
     expect(prefixResult).toEqual(futureResult);
-    expect(prefixResult.candidate.status).toBe('APPROVED');
-    expect(prefixResult.stop.status).toBe('VALID');
+    expect(prefixResult.status).toBe('APPROVED');
+
+    if (prefixResult.status === 'UNAVAILABLE') {
+      throw new RangeError('Expected an evaluated causal decision.');
+    }
+
+    expect(
+      Temporal.Instant.compare(
+        prefixResult.trendCandleCloseTime,
+        prefixResult.decisionAt,
+      ),
+    ).toBeLessThan(0);
+    expect(prefixResult.trendCandleCloseTime).toBe('2026-01-05T08:00:00Z');
   });
 });

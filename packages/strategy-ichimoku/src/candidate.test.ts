@@ -13,7 +13,7 @@ import { buildCandle } from '@trading-auto/test-helpers';
 import { Decimal } from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 
-import { evaluateH1Candidate, type H1CandidateInput } from './index.js';
+import { evaluateH1Candidate, type H1CandidateInput } from './candidate.js';
 
 const decisionAt = asInstantString('2026-01-01T09:00:00Z');
 const trendCandleCloseTime = asInstantString('2026-01-01T08:00:00Z');

@@ -8,5 +8,9 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../domain" }, { "path": "../indicators" }]
+  "references": [
+    { "path": "../domain" },
+    { "path": "../indicators" },
+    { "path": "../calendars" }
+  ]
 }

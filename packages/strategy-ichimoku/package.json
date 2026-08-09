@@ -11,12 +11,12 @@
   },
   "dependencies": {
     "@js-temporal/polyfill": "0.5.1",
+    "@trading-auto/calendars": "workspace:*",
     "@trading-auto/domain": "workspace:*",
     "@trading-auto/indicators": "workspace:*",
     "decimal.js": "10.6.0"
   },
   "devDependencies": {
-    "@trading-auto/calendars": "workspace:*",
     "@trading-auto/test-helpers": "workspace:*"
   }
 }
