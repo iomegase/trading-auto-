@@ -11,5 +11,8 @@
   },
   "dependencies": {
     "@trading-auto/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@trading-auto/test-helpers": "workspace:*"
   }
 }

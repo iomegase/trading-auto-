@@ -61,6 +61,10 @@ importers:
       '@trading-auto/domain':
         specifier: workspace:*
         version: link:../domain
+    devDependencies:
+      '@trading-auto/test-helpers':
+        specifier: workspace:*
+        version: link:../test-helpers
 
   packages/strategy-ichimoku:
     dependencies:
