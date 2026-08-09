@@ -1,5 +1,6 @@
 import type { Candle, CandleInput } from '@trading-auto/domain';
 import { buildCandle } from '@trading-auto/test-helpers';
+import { Decimal } from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -9,6 +10,7 @@ import {
 } from './index.js';
 
 const baselineConfig: IchimokuConfig = {
+  version: 'baseline-9-26-52-v1',
   tenkanPeriod: 9,
   kijunPeriod: 26,
   senkouBPeriod: 52,
@@ -97,6 +99,158 @@ function itemAt<T>(items: readonly T[], index: number): T {
 }
 
 describe('computeIchimoku', () => {
+  it.each([undefined, '', '   '])(
+    'rejects invalid config version %j',
+    (version) => {
+      const config = { ...baselineConfig, version } as IchimokuConfig;
+
+      expect(() => computeIchimoku([], config)).toThrow(/version/i);
+    },
+  );
+
+  it('records candle and configuration provenance on every point', () => {
+    const candle = candleAt(0, { high: 11, low: 9, close: 10 });
+    const point = itemAt(computeIchimoku([candle], baselineConfig), 0);
+
+    expect(point).toMatchObject({
+      instrumentId: candle.instrumentId,
+      timeframe: candle.timeframe,
+      candleCloseTime: candle.closeTime,
+      configVersion: baselineConfig.version,
+    });
+  });
+
+  it('uses the latest prefix availability as computedAt', () => {
+    const first = buildCandle({
+      openTime: '2026-01-01T08:00:00Z',
+      closeTime: '2026-01-01T09:00:00Z',
+      availableAt: '2026-01-01T11:00:00Z',
+      ingestedAt: '2026-01-01T11:00:00Z',
+    });
+    const second = buildCandle({
+      openTime: '2026-01-01T09:00:00Z',
+      closeTime: '2026-01-01T10:00:00Z',
+      availableAt: '2026-01-01T10:00:00Z',
+      ingestedAt: '2026-01-01T10:00:00Z',
+    });
+
+    expect(
+      itemAt(computeIchimoku([first, second], baselineConfig), 1).computedAt,
+    ).toBe(first.availableAt);
+  });
+
+  it('preserves an exact decimal Kijun midpoint', () => {
+    const config: IchimokuConfig = {
+      version: 'exact-kijun-v1',
+      tenkanPeriod: 1,
+      kijunPeriod: 1,
+      senkouBPeriod: 1,
+      displacement: 1,
+      kijunSlopeLookback: 1,
+    };
+    const candle = candleFromStrings(0, {
+      high: '0.2',
+      low: '0.1',
+      close: '0.15',
+    });
+
+    expect(itemAt(computeIchimoku([candle], config), 0).kijunPrice).toBe(
+      '0.15',
+    );
+  });
+
+  it('isolates exact Kijun calculation from ambient Decimal settings', () => {
+    const previous = {
+      precision: Decimal.precision,
+      rounding: Decimal.rounding,
+      toExpNeg: Decimal.toExpNeg,
+      toExpPos: Decimal.toExpPos,
+      maxE: Decimal.maxE,
+      minE: Decimal.minE,
+      modulo: Decimal.modulo,
+      crypto: Decimal.crypto,
+    };
+    const config: IchimokuConfig = {
+      ...baselineConfig,
+      version: 'decimal-isolation-v1',
+      tenkanPeriod: 1,
+      kijunPeriod: 1,
+      senkouBPeriod: 1,
+      displacement: 1,
+      kijunSlopeLookback: 1,
+    };
+    const candle = candleFromStrings(0, {
+      high: '1002',
+      low: '1000',
+      close: '1001',
+    });
+
+    try {
+      Decimal.set({ maxE: 2, minE: -2 });
+      expect(itemAt(computeIchimoku([candle], config), 0).kijunPrice).toBe(
+        '1001',
+      );
+    } finally {
+      Decimal.set(previous);
+    }
+  });
+
+  it('rejects a sparse input before calculating points', () => {
+    const candles = new Array<Candle>(1);
+
+    expect(() => computeIchimoku(candles, baselineConfig)).toThrow(/dense/i);
+  });
+
+  it.each([
+    [
+      'mixed instruments',
+      [
+        candleAt(0, { high: 11, low: 9, close: 10 }),
+        buildCandle({
+          instrumentId: 'OTHER',
+          openTime: timestampAt(1),
+          closeTime: timestampAt(2),
+          availableAt: timestampAt(2),
+          ingestedAt: timestampAt(2),
+        }),
+      ],
+    ],
+    [
+      'mixed timeframes',
+      [
+        candleAt(0, { high: 11, low: 9, close: 10 }),
+        buildCandle({
+          timeframe: '4h',
+          openTime: timestampAt(1),
+          closeTime: timestampAt(2),
+          availableAt: timestampAt(2),
+          ingestedAt: timestampAt(2),
+        }),
+      ],
+    ],
+    [
+      'overlapping candles',
+      [
+        candleAt(0, { high: 11, low: 9, close: 10 }),
+        buildCandle({
+          openTime: '2026-01-01T00:30:00Z',
+          closeTime: timestampAt(2),
+          availableAt: timestampAt(2),
+          ingestedAt: timestampAt(2),
+        }),
+      ],
+    ],
+    [
+      'unordered candles',
+      [
+        candleAt(1, { high: 12, low: 10, close: 11 }),
+        candleAt(0, { high: 11, low: 9, close: 10 }),
+      ],
+    ],
+  ] as const)('rejects $0', (_label, candles) => {
+    expect(() => computeIchimoku(candles, baselineConfig)).toThrow(RangeError);
+  });
+
   it('rejects a positive price that underflows to zero as a number', () => {
     const tiny = `0.${'0'.repeat(399)}1`;
 
@@ -149,6 +303,7 @@ describe('computeIchimoku', () => {
       candleAt(5, { high: 110, low: 60, close: 100 }),
     ];
     const config: IchimokuConfig = {
+      version: 'asymmetric-v1',
       tenkanPeriod: 4,
       kijunPeriod: 5,
       senkouBPeriod: 6,
@@ -172,6 +327,7 @@ describe('computeIchimoku', () => {
       close: tooLarge,
     });
     const config: IchimokuConfig = {
+      version: 'unit-window-v1',
       tenkanPeriod: 1,
       kijunPeriod: 1,
       senkouBPeriod: 1,
@@ -195,6 +351,7 @@ describe('computeIchimoku', () => {
     const high = `11${'0'.repeat(307)}`;
     const candle = candleFromStrings(0, { high, low, close: low });
     const config: IchimokuConfig = {
+      version: 'unit-window-v1',
       tenkanPeriod: 1,
       kijunPeriod: 1,
       senkouBPeriod: 1,
@@ -261,6 +418,7 @@ describe('computeIchimoku', () => {
 
   it('reports projected bullish, bearish, neutral, and insufficient directions', () => {
     const config: IchimokuConfig = {
+      version: 'short-window-v1',
       tenkanPeriod: 2,
       kijunPeriod: 3,
       senkouBPeriod: 4,

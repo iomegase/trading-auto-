@@ -10,7 +10,10 @@
     }
   },
   "dependencies": {
-    "@trading-auto/domain": "workspace:*"
+    "@js-temporal/polyfill": "0.5.1",
+    "@trading-auto/domain": "workspace:*",
+    "decimal.js": "10.6.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@trading-auto/test-helpers": "workspace:*"

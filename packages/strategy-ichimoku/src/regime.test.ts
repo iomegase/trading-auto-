@@ -1,4 +1,4 @@
-import type { Candle } from '@trading-auto/domain';
+import { asDecimalString, type Candle } from '@trading-auto/domain';
 import type { IchimokuPoint } from '@trading-auto/indicators';
 import { buildCandle } from '@trading-auto/test-helpers';
 import { Decimal } from 'decimal.js';
@@ -34,9 +34,14 @@ function ichimokuPoint(
   overrides: Partial<IchimokuPoint> = {},
 ): Readonly<IchimokuPoint> {
   return {
+    instrumentId: candle.instrumentId,
+    timeframe: candle.timeframe,
+    candleCloseTime: candle.closeTime,
     computedAt: candle.availableAt,
+    configVersion: 'regime-test-v1',
     tenkan: 95,
     kijun: 96,
+    kijunPrice: asDecimalString('96'),
     senkouARaw: 101,
     senkouBRaw: 99,
     projectedSenkouA: 101,

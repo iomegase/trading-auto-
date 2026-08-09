@@ -1,6 +1,17 @@
-import type { Candle, InstantString } from '@trading-auto/domain';
+import { Temporal } from '@js-temporal/polyfill';
+import {
+  asDecimalString,
+  assertCandleSeries,
+  type Candle,
+  type DecimalString,
+  type InstantString,
+  type Timeframe,
+} from '@trading-auto/domain';
+import { Decimal } from 'decimal.js';
+import { z } from 'zod';
 
 export interface IchimokuConfig {
+  readonly version: string;
   readonly tenkanPeriod: number;
   readonly kijunPeriod: number;
   readonly senkouBPeriod: number;
@@ -12,9 +23,14 @@ export type CloudDirection =
   'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'INSUFFICIENT_DATA';
 
 export interface IchimokuPoint {
+  readonly instrumentId: string;
+  readonly timeframe: Timeframe;
+  readonly candleCloseTime: InstantString;
   readonly computedAt: InstantString;
+  readonly configVersion: string;
   readonly tenkan: number | null;
   readonly kijun: number | null;
+  readonly kijunPrice: DecimalString | null;
   readonly senkouARaw: number | null;
   readonly senkouBRaw: number | null;
   readonly projectedSenkouA: number | null;
@@ -33,23 +49,39 @@ export interface IchimokuPoint {
   readonly kijunSlope: number | null;
 }
 
-const configFields = [
-  'tenkanPeriod',
-  'kijunPeriod',
-  'senkouBPeriod',
-  'displacement',
-  'kijunSlopeLookback',
-] as const satisfies readonly (keyof IchimokuConfig)[];
+const positiveSafeInteger = z
+  .number()
+  .int()
+  .positive()
+  .max(Number.MAX_SAFE_INTEGER);
+const configSchema = z
+  .object({
+    version: z.string().trim().min(1),
+    tenkanPeriod: positiveSafeInteger,
+    kijunPeriod: positiveSafeInteger,
+    senkouBPeriod: positiveSafeInteger,
+    displacement: positiveSafeInteger,
+    kijunSlopeLookback: positiveSafeInteger,
+  })
+  .strict();
 
-function validateConfig(config: Readonly<IchimokuConfig>): void {
-  for (const field of configFields) {
-    const value = config[field];
+function validateConfig(config: Readonly<IchimokuConfig>): IchimokuConfig {
+  const result = configSchema.safeParse(config);
 
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new RangeError(`${field} must be a positive safe integer.`);
-    }
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    const field = issue?.path[0] ?? 'config';
+    throw new RangeError(`${String(field)} is invalid.`);
   }
+
+  return result.data;
 }
+
+const IndicatorDecimal = Decimal.clone({
+  precision: 1_000_000_000,
+  maxE: 9e15,
+  minE: -9e15,
+});
 
 interface NumericCandle {
   readonly high: number;
@@ -126,6 +158,55 @@ function midpointAt(
   return finiteMidpoint(highestHigh, lowestLow);
 }
 
+function decimalMidpointAt(
+  candles: readonly Candle[],
+  index: number,
+  period: number,
+): DecimalString | null {
+  const start = index - period + 1;
+
+  if (start < 0) {
+    return null;
+  }
+
+  let highestHigh: Decimal | null = null;
+  let lowestLow: Decimal | null = null;
+
+  for (let windowIndex = start; windowIndex <= index; windowIndex += 1) {
+    const candle = itemAt(candles, windowIndex);
+    const high = new IndicatorDecimal(candle.high);
+    const low = new IndicatorDecimal(candle.low);
+    highestHigh =
+      highestHigh === null ? high : IndicatorDecimal.max(highestHigh, high);
+    lowestLow = lowestLow === null ? low : IndicatorDecimal.min(lowestLow, low);
+  }
+
+  if (highestHigh === null || lowestLow === null) {
+    throw new RangeError('Expected an exact Ichimoku midpoint window.');
+  }
+
+  return asDecimalString(
+    lowestLow.plus(highestHigh.minus(lowestLow).div(2)).toFixed(),
+  );
+}
+
+function prefixAvailability(
+  candles: readonly Candle[],
+): readonly InstantString[] {
+  let latest: InstantString | null = null;
+
+  return candles.map((candle) => {
+    if (
+      latest === null ||
+      Temporal.Instant.compare(candle.availableAt, latest) > 0
+    ) {
+      latest = candle.availableAt;
+    }
+
+    return latest;
+  });
+}
+
 function cloudDirection(
   senkouA: number | null,
   senkouB: number | null,
@@ -167,18 +248,23 @@ export function computeIchimoku(
   candles: readonly Candle[],
   config: Readonly<IchimokuConfig>,
 ): readonly IchimokuPoint[] {
-  validateConfig(config);
+  const validatedConfig = validateConfig(config);
+  assertCandleSeries(candles);
 
   const numericCandles = candles.map(numericCandle);
+  const computedAt = prefixAvailability(candles);
 
   const tenkan = numericCandles.map((_, index) =>
-    midpointAt(numericCandles, index, config.tenkanPeriod),
+    midpointAt(numericCandles, index, validatedConfig.tenkanPeriod),
   );
   const kijun = numericCandles.map((_, index) =>
-    midpointAt(numericCandles, index, config.kijunPeriod),
+    midpointAt(numericCandles, index, validatedConfig.kijunPeriod),
+  );
+  const kijunPrice = candles.map((_, index) =>
+    decimalMidpointAt(candles, index, validatedConfig.kijunPeriod),
   );
   const senkouBRaw = numericCandles.map((_, index) =>
-    midpointAt(numericCandles, index, config.senkouBPeriod),
+    midpointAt(numericCandles, index, validatedConfig.senkouBPeriod),
   );
   const senkouARaw = candles.map((_, index) => {
     const tenkanValue = itemAt(tenkan, index);
@@ -192,22 +278,27 @@ export function computeIchimoku(
   const points = candles.map((candle, index): Readonly<IchimokuPoint> => {
     const rawA = itemAt(senkouARaw, index);
     const rawB = itemAt(senkouBRaw, index);
-    const displacedIndex = index - config.displacement;
+    const displacedIndex = index - validatedConfig.displacement;
     const currentA =
       displacedIndex < 0 ? null : itemAt(senkouARaw, displacedIndex);
     const currentB =
       displacedIndex < 0 ? null : itemAt(senkouBRaw, displacedIndex);
     const chikouCandle =
       displacedIndex < 0 ? null : itemAt(numericCandles, displacedIndex);
-    const slopeReferenceIndex = index - config.kijunSlopeLookback;
+    const slopeReferenceIndex = index - validatedConfig.kijunSlopeLookback;
     const currentKijun = itemAt(kijun, index);
     const referenceKijun =
       slopeReferenceIndex < 0 ? null : itemAt(kijun, slopeReferenceIndex);
 
     return Object.freeze({
-      computedAt: candle.availableAt,
+      instrumentId: candle.instrumentId,
+      timeframe: candle.timeframe,
+      candleCloseTime: candle.closeTime,
+      computedAt: itemAt(computedAt, index),
+      configVersion: validatedConfig.version,
       tenkan: itemAt(tenkan, index),
       kijun: currentKijun,
+      kijunPrice: itemAt(kijunPrice, index),
       senkouARaw: rawA,
       senkouBRaw: rawB,
       projectedSenkouA: rawA,

@@ -12,6 +12,7 @@ import {
 } from './index.js';
 
 const config: IchimokuConfig = {
+  version: 'causality-v1',
   tenkanPeriod: 9,
   kijunPeriod: 26,
   senkouBPeriod: 52,

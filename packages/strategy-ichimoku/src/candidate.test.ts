@@ -1,4 +1,5 @@
 import {
+  asDecimalString,
   asInstantString,
   type Candle,
   type InstantString,
@@ -40,9 +41,14 @@ function point(
   overrides: Partial<IchimokuPoint> = {},
 ): Readonly<IchimokuPoint> {
   return {
+    instrumentId: candleValue.instrumentId,
+    timeframe: candleValue.timeframe,
+    candleCloseTime: candleValue.closeTime,
     computedAt: candleValue.availableAt,
+    configVersion: 'candidate-test-v1',
     tenkan: 101,
     kijun: 100,
+    kijunPrice: asDecimalString('100'),
     senkouARaw: 99,
     senkouBRaw: 98,
     projectedSenkouA: 99,
@@ -505,6 +511,7 @@ describe('evaluateH1Candidate', () => {
       });
     });
     const config: IchimokuConfig = {
+      version: 'candidate-integration-v1',
       tenkanPeriod: 1,
       kijunPeriod: 2,
       senkouBPeriod: 4,
