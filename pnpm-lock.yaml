@@ -43,6 +43,9 @@ importers:
       '@trading-auto/domain':
         specifier: workspace:*
         version: link:../domain
+      '@trading-auto/indicators':
+        specifier: workspace:*
+        version: link:../indicators
     devDependencies:
       '@trading-auto/test-helpers':
         specifier: workspace:*

@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@js-temporal/polyfill": "0.5.1",
-    "@trading-auto/domain": "workspace:*"
+    "@trading-auto/domain": "workspace:*",
+    "@trading-auto/indicators": "workspace:*"
   },
   "devDependencies": {
     "@trading-auto/test-helpers": "workspace:*"
