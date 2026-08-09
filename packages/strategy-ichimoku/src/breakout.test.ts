@@ -124,6 +124,12 @@ describe('detectBreakout', () => {
     expect(() => detectBreakout(candles, 2, 2)).toThrow(RangeError);
   });
 
+  it('rejects a sparse candle array even before enough history exists', () => {
+    const candles = new Array<Candle>(1);
+
+    expect(() => detectBreakout(candles, 0, 1)).toThrow(RangeError);
+  });
+
   it('does not mutate the candle array or its candles', () => {
     const candles = [candle('100', '90', '95'), candle('101', '91', '96')];
     const arrayBefore = [...candles];

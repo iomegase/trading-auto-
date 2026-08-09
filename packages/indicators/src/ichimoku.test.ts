@@ -97,6 +97,16 @@ function itemAt<T>(items: readonly T[], index: number): T {
 }
 
 describe('computeIchimoku', () => {
+  it('rejects a positive price that underflows to zero as a number', () => {
+    const tiny = `0.${'0'.repeat(399)}1`;
+
+    expect(() =>
+      computeIchimoku(
+        [buildCandle({ open: tiny, high: tiny, low: tiny, close: tiny })],
+        baselineConfig,
+      ),
+    ).toThrow(/representable/);
+  });
   it('starts every baseline line at the exact inclusive-window index', () => {
     const points = computeIchimoku(trendingCandles(90), baselineConfig);
 

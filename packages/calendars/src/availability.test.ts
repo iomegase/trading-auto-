@@ -120,6 +120,18 @@ describe('selectLatestAvailableClosedCandle', () => {
     expect(candles).toEqual([candleAt1200, candleAt0800]);
   });
 
+  it('retains the first eligible candle when close times tie', () => {
+    const first = candleClosingAt('2026-01-01T12:00:00Z');
+    const second = candleClosingAt('2026-01-01T12:00:00Z');
+
+    expect(
+      selectLatestAvailableClosedCandle(
+        [first, second],
+        asInstantString('2026-01-01T13:00:00Z'),
+      ),
+    ).toBe(first);
+  });
+
   it('compares actual instants across equivalent offset spellings', () => {
     const candleAt0800WithOffset = candleClosingAt('2026-01-01T10:00:00+02:00');
     const candleAt0800Utc = candleClosingAt('2026-01-01T08:00:00Z');

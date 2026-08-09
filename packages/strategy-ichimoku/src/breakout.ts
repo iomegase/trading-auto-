@@ -31,6 +31,8 @@ export function detectBreakout(
     throw new RangeError('lookback must be a positive safe integer.');
   }
 
+  const currentCandle = candleAt(candles, index);
+
   if (index < lookback) {
     return { status: 'INSUFFICIENT_DATA' };
   }
@@ -46,7 +48,7 @@ export function detectBreakout(
     lowestLow = StrategyDecimal.min(lowestLow, priorCandle.low);
   }
 
-  const close = new StrategyDecimal(candleAt(candles, index).close);
+  const close = new StrategyDecimal(currentCandle.close);
 
   if (close.gt(highestHigh)) {
     return { status: 'LONG' };

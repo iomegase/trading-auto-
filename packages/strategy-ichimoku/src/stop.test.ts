@@ -61,6 +61,22 @@ describe('proposeKijunStop', () => {
     ).toEqual({ status: 'VALID', price: '0.0000001' });
   });
 
+  it.each([0, -1])('rejects a non-positive Kijun %s', (kijun) => {
+    expect(proposeKijunStop('LONG', kijun, asDecimalString('100'))).toEqual({
+      status: 'INVALID_INITIAL_STOP',
+    });
+  });
+
+  it('rejects an invalid runtime direction', () => {
+    expect(() =>
+      proposeKijunStop(
+        'SIDEWAYS' as unknown as 'LONG',
+        99,
+        asDecimalString('100'),
+      ),
+    ).toThrow(/direction/);
+  });
+
   it('is isolated from ambient Decimal exponent configuration', () => {
     const previousConfiguration = decimalConfiguration();
 

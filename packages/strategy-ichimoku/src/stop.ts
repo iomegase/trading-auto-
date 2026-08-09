@@ -6,12 +6,20 @@ export type StopProposal =
   | { readonly status: 'VALID'; readonly price: DecimalString }
   | { readonly status: 'INVALID_INITIAL_STOP' };
 
+function assertDirection(value: unknown): asserts value is 'LONG' | 'SHORT' {
+  if (value !== 'LONG' && value !== 'SHORT') {
+    throw new RangeError('direction must be LONG or SHORT.');
+  }
+}
+
 export function proposeKijunStop(
   direction: 'LONG' | 'SHORT',
   kijun: number | null,
   entryReference: DecimalString,
 ): StopProposal {
-  if (kijun === null || !Number.isFinite(kijun)) {
+  assertDirection(direction);
+
+  if (kijun === null || !Number.isFinite(kijun) || kijun <= 0) {
     return { status: 'INVALID_INITIAL_STOP' };
   }
 

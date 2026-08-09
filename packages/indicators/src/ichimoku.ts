@@ -64,7 +64,7 @@ function finitePrice(
 ): number {
   const value = Number(candle[field]);
 
-  if (!Number.isFinite(value)) {
+  if (!Number.isFinite(value) || value === 0) {
     throw new RangeError(
       `candle ${String(index)} ${field} must be representable as a finite number.`,
     );
