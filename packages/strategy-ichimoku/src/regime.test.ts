@@ -1,6 +1,7 @@
 import type { Candle } from '@trading-auto/domain';
 import type { IchimokuPoint } from '@trading-auto/indicators';
 import { buildCandle } from '@trading-auto/test-helpers';
+import { Decimal } from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 
 import { evaluateH4Regime } from './index.js';
@@ -13,6 +14,19 @@ function h4Candle(close: string): Readonly<Candle> {
     low: close,
     close,
   });
+}
+
+function decimalConfiguration() {
+  return {
+    precision: Decimal.precision,
+    rounding: Decimal.rounding,
+    toExpNeg: Decimal.toExpNeg,
+    toExpPos: Decimal.toExpPos,
+    maxE: Decimal.maxE,
+    minE: Decimal.minE,
+    modulo: Decimal.modulo,
+    crypto: Decimal.crypto,
+  };
 }
 
 function ichimokuPoint(
@@ -157,6 +171,23 @@ describe('evaluateH4Regime', () => {
     });
 
     expect(evaluateH4Regime(candle, point)).toBe('BULLISH');
+  });
+
+  it('is isolated from ambient Decimal exponent configuration', () => {
+    const previousConfiguration = decimalConfiguration();
+    const candle = h4Candle('1001');
+    const point = ichimokuPoint(candle, {
+      currentCloudTop: 1000,
+      currentCloudBottom: 900,
+    });
+
+    try {
+      Decimal.set({ maxE: 2, minE: -2 });
+
+      expect(evaluateH4Regime(candle, point)).toBe('BULLISH');
+    } finally {
+      Decimal.set(previousConfiguration);
+    }
   });
 
   it.each([

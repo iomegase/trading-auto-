@@ -1,7 +1,21 @@
 import { asDecimalString } from '@trading-auto/domain';
+import { Decimal } from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 
 import { proposeKijunStop } from './index.js';
+
+function decimalConfiguration() {
+  return {
+    precision: Decimal.precision,
+    rounding: Decimal.rounding,
+    toExpNeg: Decimal.toExpNeg,
+    toExpPos: Decimal.toExpPos,
+    maxE: Decimal.maxE,
+    minE: Decimal.minE,
+    modulo: Decimal.modulo,
+    crypto: Decimal.crypto,
+  };
+}
 
 describe('proposeKijunStop', () => {
   it('proposes a valid LONG stop strictly below the entry reference', () => {
@@ -45,5 +59,20 @@ describe('proposeKijunStop', () => {
     expect(
       proposeKijunStop('LONG', 1e-7, asDecimalString('0.0000002')),
     ).toEqual({ status: 'VALID', price: '0.0000001' });
+  });
+
+  it('is isolated from ambient Decimal exponent configuration', () => {
+    const previousConfiguration = decimalConfiguration();
+
+    try {
+      Decimal.set({ maxE: 2, minE: -2 });
+
+      expect(proposeKijunStop('SHORT', 1000, asDecimalString('999'))).toEqual({
+        status: 'VALID',
+        price: '1000',
+      });
+    } finally {
+      Decimal.set(previousConfiguration);
+    }
   });
 });

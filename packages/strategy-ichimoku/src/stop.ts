@@ -1,5 +1,6 @@
 import { asDecimalString, type DecimalString } from '@trading-auto/domain';
-import { Decimal } from 'decimal.js';
+
+import { StrategyDecimal } from './decimal.js';
 
 export type StopProposal =
   | { readonly status: 'VALID'; readonly price: DecimalString }
@@ -14,8 +15,8 @@ export function proposeKijunStop(
     return { status: 'INVALID_INITIAL_STOP' };
   }
 
-  const kijunDecimal = new Decimal(kijun);
-  const entryDecimal = new Decimal(entryReference);
+  const kijunDecimal = new StrategyDecimal(kijun);
+  const entryDecimal = new StrategyDecimal(entryReference);
   const isValid =
     direction === 'LONG'
       ? kijunDecimal.lt(entryDecimal)

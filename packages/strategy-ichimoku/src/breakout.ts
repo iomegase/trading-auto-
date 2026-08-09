@@ -1,5 +1,6 @@
 import type { Candle } from '@trading-auto/domain';
-import { Decimal } from 'decimal.js';
+
+import { StrategyDecimal } from './decimal.js';
 
 export type BreakoutResult =
   | { readonly status: 'LONG' | 'SHORT' | 'NONE' }
@@ -36,16 +37,16 @@ export function detectBreakout(
 
   const start = index - lookback;
   const firstPriorCandle = candleAt(candles, start);
-  let highestHigh = new Decimal(firstPriorCandle.high);
-  let lowestLow = new Decimal(firstPriorCandle.low);
+  let highestHigh = new StrategyDecimal(firstPriorCandle.high);
+  let lowestLow = new StrategyDecimal(firstPriorCandle.low);
 
   for (let windowIndex = start + 1; windowIndex < index; windowIndex += 1) {
     const priorCandle = candleAt(candles, windowIndex);
-    highestHigh = Decimal.max(highestHigh, priorCandle.high);
-    lowestLow = Decimal.min(lowestLow, priorCandle.low);
+    highestHigh = StrategyDecimal.max(highestHigh, priorCandle.high);
+    lowestLow = StrategyDecimal.min(lowestLow, priorCandle.low);
   }
 
-  const close = new Decimal(candleAt(candles, index).close);
+  const close = new StrategyDecimal(candleAt(candles, index).close);
 
   if (close.gt(highestHigh)) {
     return { status: 'LONG' };

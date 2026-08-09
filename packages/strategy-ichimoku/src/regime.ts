@@ -1,6 +1,7 @@
 import type { Candle } from '@trading-auto/domain';
 import type { IchimokuPoint } from '@trading-auto/indicators';
-import { Decimal } from 'decimal.js';
+
+import { StrategyDecimal } from './decimal.js';
 
 export type MarketRegime =
   'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'INSUFFICIENT_DATA';
@@ -38,10 +39,10 @@ export function evaluateH4Regime(
     return 'INSUFFICIENT_DATA';
   }
 
-  const close = new Decimal(candle.close);
+  const close = new StrategyDecimal(candle.close);
 
   if (
-    close.gt(new Decimal(currentCloudTop)) &&
+    close.gt(new StrategyDecimal(currentCloudTop)) &&
     kijunSlope > 0 &&
     point.projectedCloudDirection === 'BULLISH'
   ) {
@@ -49,7 +50,7 @@ export function evaluateH4Regime(
   }
 
   if (
-    close.lt(new Decimal(currentCloudBottom)) &&
+    close.lt(new StrategyDecimal(currentCloudBottom)) &&
     kijunSlope < 0 &&
     point.projectedCloudDirection === 'BEARISH'
   ) {

@@ -1,11 +1,25 @@
 import type { Candle } from '@trading-auto/domain';
 import { buildCandle } from '@trading-auto/test-helpers';
+import { Decimal } from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 
 import { detectBreakout } from './index.js';
 
 function candle(high: string, low: string, close: string): Readonly<Candle> {
   return buildCandle({ open: close, high, low, close });
+}
+
+function decimalConfiguration() {
+  return {
+    precision: Decimal.precision,
+    rounding: Decimal.rounding,
+    toExpNeg: Decimal.toExpNeg,
+    toExpPos: Decimal.toExpPos,
+    maxE: Decimal.maxE,
+    minE: Decimal.minE,
+    modulo: Decimal.modulo,
+    crypto: Decimal.crypto,
+  };
 }
 
 describe('detectBreakout', () => {
@@ -84,6 +98,30 @@ describe('detectBreakout', () => {
     ];
 
     expect(detectBreakout(candles, 1, 1)).toEqual({ status: 'SHORT' });
+  });
+
+  it('is isolated from ambient Decimal exponent configuration', () => {
+    const previousConfiguration = decimalConfiguration();
+    const candles = [
+      candle('1000', '900', '950'),
+      candle('1001', '900', '1001'),
+    ];
+
+    try {
+      Decimal.set({ maxE: 2, minE: -2 });
+
+      expect(detectBreakout(candles, 1, 1)).toEqual({ status: 'LONG' });
+    } finally {
+      Decimal.set(previousConfiguration);
+    }
+  });
+
+  it('rejects a sparse candle array when the lookback encounters a hole', () => {
+    const candles = new Array<Candle>(3);
+    candles[0] = candle('100', '90', '95');
+    candles[2] = candle('102', '92', '101');
+
+    expect(() => detectBreakout(candles, 2, 2)).toThrow(RangeError);
   });
 
   it('does not mutate the candle array or its candles', () => {
