@@ -29,5 +29,5 @@ export function asInstantString(value: string): InstantString {
     );
   }
 
-  return value as InstantString;
+  return Temporal.Instant.from(value).toString() as InstantString;
 }

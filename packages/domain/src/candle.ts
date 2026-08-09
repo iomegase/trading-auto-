@@ -77,7 +77,7 @@ function assertNonEmptyString(
   value: unknown,
   field: string,
 ): asserts value is string {
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
     invalidCandle('INVALID_CANDLE', `${field} must be a non-empty string.`, {
       field,
       value,

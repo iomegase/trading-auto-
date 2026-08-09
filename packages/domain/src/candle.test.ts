@@ -50,6 +50,12 @@ describe('asInstantString', () => {
     );
   });
 
+  it('normalizes equivalent offsets to canonical UTC', () => {
+    expect(asInstantString('2026-01-01T09:00:00+01:00')).toBe(
+      '2026-01-01T08:00:00Z',
+    );
+  });
+
   it.each(['2026-01-01T08:00:00', '2026-01-01', 'not-a-timestamp'])(
     'rejects a non-instant string: %s',
     (value) => {
@@ -243,6 +249,20 @@ describe('createCandle', () => {
       );
     },
   );
+
+  it.each([
+    'instrumentId',
+    'sourceTimestamp',
+    'sourceTimezone',
+    'exchangeTimezone',
+    'provider',
+  ] as const)('rejects a whitespace-only %s', (field) => {
+    expectDomainValidationError(
+      () => createCandle({ ...validInput, [field]: ' \t\n ' }),
+      'INVALID_CANDLE',
+      { field, value: ' \t\n ' },
+    );
+  });
 
   it.each([
     'openTime',
