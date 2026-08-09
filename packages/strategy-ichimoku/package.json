@@ -11,6 +11,10 @@
   },
   "dependencies": {
     "@trading-auto/domain": "workspace:*",
-    "@trading-auto/indicators": "workspace:*"
+    "@trading-auto/indicators": "workspace:*",
+    "decimal.js": "10.6.0"
+  },
+  "devDependencies": {
+    "@trading-auto/test-helpers": "workspace:*"
   }
 }
