@@ -226,4 +226,18 @@ describe('selectLatestAvailableH4Snapshot', () => {
       ),
     ).toThrow(/computedAt/);
   });
+
+  it('rejects mixed snapshot configuration versions', () => {
+    const first = h4Candle(0);
+    const second = h4Candle(1);
+
+    expect(() =>
+      selectLatestAvailableH4Snapshot(
+        [first, second],
+        [pointFor(first), pointFor(second, { configVersion: 'other-v2' })],
+        second.availableAt,
+        'TEST',
+      ),
+    ).toThrow(/configVersion/);
+  });
 });

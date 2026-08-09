@@ -85,6 +85,29 @@ function hasCompleteRegimeData(point: IchimokuPoint): boolean {
   );
 }
 
+function assertConfigVersion(
+  point: IchimokuPoint,
+  index: number,
+  expected: string | null,
+): string {
+  if (
+    typeof point.configVersion !== 'string' ||
+    point.configVersion.trim().length === 0
+  ) {
+    invalidSelection(
+      `snapshot configVersion is blank at index ${String(index)}`,
+    );
+  }
+
+  if (expected !== null && point.configVersion !== expected) {
+    invalidSelection(
+      `snapshot configVersion mismatch at index ${String(index)}`,
+    );
+  }
+
+  return point.configVersion;
+}
+
 export function selectLatestAvailableH4Snapshot(
   candles: readonly Candle[],
   points: readonly IchimokuPoint[],
@@ -106,10 +129,12 @@ export function selectLatestAvailableH4Snapshot(
   let latestPrefixIsReady = false;
   let prefixIsReady = true;
   let prefixAvailability: InstantString | null = null;
+  let configVersion: string | null = null;
 
   for (let index = 0; index < candles.length; index += 1) {
     const candle = candleAt(candles, index);
     const point = pointAt(points, index);
+    configVersion = assertConfigVersion(point, index, configVersion);
     prefixAvailability =
       prefixAvailability === null ||
       Temporal.Instant.compare(candle.availableAt, prefixAvailability) > 0

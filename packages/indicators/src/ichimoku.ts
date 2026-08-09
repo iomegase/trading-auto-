@@ -1,6 +1,7 @@
 import { Temporal } from '@js-temporal/polyfill';
 import {
   asDecimalString,
+  asInstantString,
   assertCandleSeries,
   type Candle,
   type DecimalString,
@@ -196,11 +197,10 @@ function prefixAvailability(
   let latest: InstantString | null = null;
 
   return candles.map((candle) => {
-    if (
-      latest === null ||
-      Temporal.Instant.compare(candle.availableAt, latest) > 0
-    ) {
-      latest = candle.availableAt;
+    const availableAt = asInstantString(candle.availableAt);
+
+    if (latest === null || Temporal.Instant.compare(availableAt, latest) > 0) {
+      latest = availableAt;
     }
 
     return latest;
@@ -293,7 +293,7 @@ export function computeIchimoku(
     return Object.freeze({
       instrumentId: candle.instrumentId,
       timeframe: candle.timeframe,
-      candleCloseTime: candle.closeTime,
+      candleCloseTime: asInstantString(candle.closeTime),
       computedAt: itemAt(computedAt, index),
       configVersion: validatedConfig.version,
       tenkan: itemAt(tenkan, index),

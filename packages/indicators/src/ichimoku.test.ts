@@ -1,4 +1,4 @@
-import type { Candle, CandleInput } from '@trading-auto/domain';
+import type { Candle, CandleInput, InstantString } from '@trading-auto/domain';
 import { buildCandle } from '@trading-auto/test-helpers';
 import { Decimal } from 'decimal.js';
 import { describe, expect, it } from 'vitest';
@@ -118,6 +118,19 @@ describe('computeIchimoku', () => {
       candleCloseTime: candle.closeTime,
       configVersion: baselineConfig.version,
     });
+  });
+
+  it('canonicalizes runtime candle instants in point provenance', () => {
+    const canonical = candleAt(0, { high: 11, low: 9, close: 10 });
+    const candle = {
+      ...canonical,
+      closeTime: '2026-01-01T02:00:00+01:00' as InstantString,
+      availableAt: '2026-01-01T02:00:00+01:00' as InstantString,
+    };
+    const point = itemAt(computeIchimoku([candle], baselineConfig), 0);
+
+    expect(point.candleCloseTime).toBe('2026-01-01T01:00:00Z');
+    expect(point.computedAt).toBe('2026-01-01T01:00:00Z');
   });
 
   it('uses the latest prefix availability as computedAt', () => {
