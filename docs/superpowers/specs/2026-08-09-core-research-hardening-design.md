@@ -111,6 +111,12 @@ snapshot.computedAt <= decisionAt
 snapshot.candleCloseTime = candle.closeTime
 ```
 
+Before an H4 snapshot is computed or selected, every candle through its close
+must itself be closed and available by `decisionAt`. Later candles that close
+before the decision but are published afterward are excluded before numeric
+indicator conversion, so unavailable extreme values cannot change or abort a
+decision at `T`.
+
 The result is a discriminated union:
 
 - `SELECTED`, carrying the candle and point;
@@ -167,6 +173,10 @@ Low-level regime, breakout, and candidate modules remain directly testable
 inside the package, but the raw candidate evaluator is removed from the public
 barrel. This prevents consumers from bypassing H4 selection or substituting an
 unbound regime value.
+
+Programmer/input validation is branch-independent: H1 closure and availability,
+lookback, entry reference, and tick size are checked before the pipeline may
+return an expected H4 `UNAVAILABLE` result.
 
 ## Exact tick-aligned stop
 
