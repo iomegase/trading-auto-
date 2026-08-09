@@ -53,6 +53,7 @@ function assertPointMatchesCandle(
   point: IchimokuPoint,
   candle: Candle,
   index: number,
+  minimumComputedAt: InstantString,
 ): void {
   if (point.instrumentId !== candle.instrumentId) {
     invalidSelection(`snapshot instrument mismatch at index ${String(index)}`);
@@ -66,7 +67,13 @@ function assertPointMatchesCandle(
     invalidSelection(`snapshot close mismatch at index ${String(index)}`);
   }
 
-  asInstantString(point.computedAt);
+  const computedAt = asInstantString(point.computedAt);
+
+  if (Temporal.Instant.compare(computedAt, minimumComputedAt) < 0) {
+    invalidSelection(
+      `snapshot computedAt precedes prefix availability at index ${String(index)}`,
+    );
+  }
 }
 
 function hasCompleteRegimeData(point: IchimokuPoint): boolean {
@@ -96,17 +103,25 @@ export function selectLatestAvailableH4Snapshot(
   }
 
   let latestIndex: number | null = null;
+  let latestPrefixIsReady = false;
+  let prefixIsReady = true;
+  let prefixAvailability: InstantString | null = null;
 
   for (let index = 0; index < candles.length; index += 1) {
     const candle = candleAt(candles, index);
-
     const point = pointAt(points, index);
-    assertPointMatchesCandle(point, candle, index);
+    prefixAvailability =
+      prefixAvailability === null ||
+      Temporal.Instant.compare(candle.availableAt, prefixAvailability) > 0
+        ? candle.availableAt
+        : prefixAvailability;
+    assertPointMatchesCandle(point, candle, index, prefixAvailability);
+    const candleIsReady =
+      candle.isClosed &&
+      Temporal.Instant.compare(candle.availableAt, normalizedDecisionAt) <= 0;
+    prefixIsReady = prefixIsReady && candleIsReady;
 
-    if (
-      !candle.isClosed ||
-      Temporal.Instant.compare(candle.availableAt, normalizedDecisionAt) > 0
-    ) {
+    if (!candleIsReady) {
       continue;
     }
 
@@ -118,6 +133,7 @@ export function selectLatestAvailableH4Snapshot(
       ) > 0
     ) {
       latestIndex = index;
+      latestPrefixIsReady = prefixIsReady;
     }
   }
 
@@ -132,6 +148,7 @@ export function selectLatestAvailableH4Snapshot(
   const point = pointAt(points, latestIndex);
 
   if (
+    !latestPrefixIsReady ||
     Temporal.Instant.compare(point.computedAt, normalizedDecisionAt) > 0 ||
     !hasCompleteRegimeData(point)
   ) {

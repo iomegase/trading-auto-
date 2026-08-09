@@ -702,7 +702,7 @@ describe('evaluateH1Candidate', () => {
     });
 
     expect(() => evaluateH1Candidate({ ...input, candles })).toThrow(
-      /breakout.*availableAt/i,
+      /prefix.*availableAt/i,
     );
   });
 
@@ -712,7 +712,51 @@ describe('evaluateH1Candidate', () => {
     candles[0] = buildCandle({ ...itemAt(candles, 0), isClosed: false });
 
     expect(() => evaluateH1Candidate({ ...input, candles })).toThrow(
-      /breakout.*closed/i,
+      /prefix.*closed/i,
     );
+  });
+
+  it('rejects an unfinished older candle used by the indicator prefix', () => {
+    const candles = [
+      buildCandle({ ...candle('100', '90', '95'), isClosed: false }),
+      candle('100', '90', '95', 1),
+      candle('100', '90', '95', 2),
+      candle('105', '101', '105', 3),
+    ];
+
+    expect(() =>
+      evaluateH1Candidate(
+        longInput({
+          candles,
+          index: 3,
+          indicator: point(itemAt(candles, 3)),
+          breakoutLookback: 1,
+        }),
+      ),
+    ).toThrow(/prefix.*closed/i);
+  });
+
+  it('rejects an older indicator-prefix candle unavailable at decision time', () => {
+    const candles = [
+      buildCandle({
+        ...candle('100', '90', '95'),
+        availableAt: '2026-01-01T10:00:00Z',
+        ingestedAt: '2026-01-01T10:00:00Z',
+      }),
+      candle('100', '90', '95', 1),
+      candle('100', '90', '95', 2),
+      candle('105', '101', '105', 3),
+    ];
+
+    expect(() =>
+      evaluateH1Candidate(
+        longInput({
+          candles,
+          index: 3,
+          indicator: point(itemAt(candles, 3)),
+          breakoutLookback: 1,
+        }),
+      ),
+    ).toThrow(/prefix.*availableAt/i);
   });
 });

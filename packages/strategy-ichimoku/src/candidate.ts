@@ -167,6 +167,25 @@ export function evaluateH1Candidate(
   }
 
   assertNotAfter(indicatorComputedAt, decisionAt, 'indicator computedAt');
+
+  for (let candleIndex = 0; candleIndex <= input.index; candleIndex += 1) {
+    const prefixCandle = candleAt(input.candles, candleIndex);
+
+    if (!prefixCandle.isClosed) {
+      throw new RangeError(
+        `Indicator prefix candle ${String(candleIndex)} must be closed.`,
+      );
+    }
+
+    const availableAt = asInstantString(prefixCandle.availableAt);
+
+    if (Temporal.Instant.compare(availableAt, decisionAt) > 0) {
+      throw new RangeError(
+        `Indicator prefix candle ${String(candleIndex)} availableAt must not be after decisionAt.`,
+      );
+    }
+  }
+
   const { currentCloudTop, currentCloudBottom, kijunSlope } = input.indicator;
 
   assertFinite(currentCloudTop, 'currentCloudTop');
@@ -178,30 +197,6 @@ export function evaluateH1Candidate(
     input.index,
     input.breakoutLookback,
   );
-
-  const breakoutStart = Math.max(0, input.index - input.breakoutLookback);
-
-  for (
-    let candleIndex = breakoutStart;
-    candleIndex <= input.index;
-    candleIndex += 1
-  ) {
-    const breakoutCandle = candleAt(input.candles, candleIndex);
-
-    if (!breakoutCandle.isClosed) {
-      throw new RangeError(
-        `Breakout candle ${String(candleIndex)} must be closed.`,
-      );
-    }
-
-    const availableAt = asInstantString(breakoutCandle.availableAt);
-
-    if (Temporal.Instant.compare(availableAt, decisionAt) > 0) {
-      throw new RangeError(
-        `Breakout candle ${String(candleIndex)} availableAt must not be after decisionAt.`,
-      );
-    }
-  }
 
   const reasons: CandidateReason[] = [];
   const requiredCloud =

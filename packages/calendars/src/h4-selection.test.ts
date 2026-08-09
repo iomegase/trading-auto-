@@ -195,4 +195,35 @@ describe('selectLatestAvailableH4Snapshot', () => {
       ),
     ).toThrow(RangeError);
   });
+
+  it('returns INSUFFICIENT_DATA when the selected snapshot prefix contains an unfinished candle', () => {
+    const unfinished = h4Candle(0, { isClosed: false });
+    const selected = h4Candle(1);
+
+    expect(
+      selectLatestAvailableH4Snapshot(
+        [unfinished, selected],
+        [pointFor(unfinished), pointFor(selected)],
+        selected.availableAt,
+        'TEST',
+      ),
+    ).toEqual({ status: 'UNAVAILABLE', reason: 'INSUFFICIENT_DATA' });
+  });
+
+  it('rejects a snapshot computedAt that is not the maximum prefix availability', () => {
+    const lateHistorical = h4Candle(0, {
+      availableAt: '2026-01-01T09:00:00Z',
+      ingestedAt: '2026-01-01T09:00:00Z',
+    });
+    const current = h4Candle(1);
+
+    expect(() =>
+      selectLatestAvailableH4Snapshot(
+        [lateHistorical, current],
+        [pointFor(lateHistorical), pointFor(current)],
+        asInstantString('2026-01-01T10:00:00Z'),
+        'TEST',
+      ),
+    ).toThrow(/computedAt/);
+  });
 });
