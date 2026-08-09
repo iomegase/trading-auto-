@@ -222,4 +222,50 @@ describe('evaluateH4Regime', () => {
 
     expect(() => evaluateH4Regime(candle, point)).toThrow(RangeError);
   });
+
+  it('rejects a non-H4 candle', () => {
+    const candle = buildCandle();
+
+    expect(() => evaluateH4Regime(candle, ichimokuPoint(candle))).toThrow(
+      /timeframe/,
+    );
+  });
+
+  it('rejects an invalid runtime projected cloud direction', () => {
+    const candle = h4Candle('101');
+    const point = ichimokuPoint(candle, {
+      projectedCloudDirection: 'SIDEWAYS' as unknown as 'BULLISH',
+    });
+
+    expect(() => evaluateH4Regime(candle, point)).toThrow(
+      /projectedCloudDirection/,
+    );
+  });
+
+  it.each([
+    {
+      label: 'instrument',
+      overrides: { instrumentId: 'OTHER' },
+      pattern: /instrumentId/,
+    },
+    {
+      label: 'timeframe',
+      overrides: { timeframe: '1h' as const },
+      pattern: /timeframe/,
+    },
+    {
+      label: 'candle close time',
+      overrides: {
+        candleCloseTime:
+          '2026-01-01T09:00:00Z' as IchimokuPoint['candleCloseTime'],
+      },
+      pattern: /candleCloseTime/,
+    },
+  ])('rejects mismatched point $label provenance', ({ overrides, pattern }) => {
+    const candle = h4Candle('101');
+
+    expect(() =>
+      evaluateH4Regime(candle, ichimokuPoint(candle, overrides)),
+    ).toThrow(pattern);
+  });
 });

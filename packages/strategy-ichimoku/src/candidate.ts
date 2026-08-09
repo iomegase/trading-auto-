@@ -1,9 +1,11 @@
 import {
+  assertCandleSeries,
   asInstantString,
   type Candle,
   type InstantString,
 } from '@trading-auto/domain';
 import type { IchimokuPoint } from '@trading-auto/indicators';
+import { Temporal } from '@js-temporal/polyfill';
 
 import { detectBreakout } from './breakout.js';
 import { StrategyDecimal } from './decimal.js';
@@ -31,6 +33,7 @@ export interface H1CandidateInput {
   readonly decisionAt: InstantString;
   readonly trendCandleCloseTime: InstantString;
   readonly strategyVersion: string;
+  readonly datasetVersion: string;
 }
 
 interface H1CandidateResultFields {
@@ -39,6 +42,8 @@ interface H1CandidateResultFields {
   readonly signalCandleCloseTime: InstantString;
   readonly trendCandleCloseTime: InstantString;
   readonly strategyVersion: string;
+  readonly datasetVersion: string;
+  readonly indicatorConfigVersion: string;
   readonly reasons: readonly CandidateReason[];
 }
 
@@ -71,6 +76,25 @@ function assertRegime(value: unknown): asserts value is MarketRegime {
   }
 }
 
+function assertNonBlank(
+  value: unknown,
+  field: string,
+): asserts value is string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new RangeError(`${field} must be a non-blank string.`);
+  }
+}
+
+function assertNotAfter(
+  value: InstantString,
+  upperBound: InstantString,
+  field: string,
+): void {
+  if (Temporal.Instant.compare(value, upperBound) > 0) {
+    throw new RangeError(`${field} must not be after decisionAt.`);
+  }
+}
+
 function candleAt(candles: readonly Candle[], index: number): Candle {
   const candle = candles[index];
 
@@ -97,16 +121,52 @@ export function evaluateH1Candidate(
   assertDirection(input.direction);
   assertRegime(input.regime);
 
-  if (
-    typeof input.strategyVersion !== 'string' ||
-    input.strategyVersion.trim().length === 0
-  ) {
-    throw new RangeError('strategyVersion must be a non-blank string.');
-  }
+  assertNonBlank(input.strategyVersion, 'strategyVersion');
+  assertNonBlank(input.datasetVersion, 'datasetVersion');
+  assertNonBlank(input.indicator.configVersion, 'indicator.configVersion');
 
   const decisionAt = asInstantString(input.decisionAt);
   const trendCandleCloseTime = asInstantString(input.trendCandleCloseTime);
+  assertNotAfter(trendCandleCloseTime, decisionAt, 'trendCandleCloseTime');
+
+  assertCandleSeries(input.candles, { timeframe: '1h' });
   const signalCandle = candleAt(input.candles, input.index);
+  const signalCloseTime = asInstantString(signalCandle.closeTime);
+  const signalAvailableAt = asInstantString(signalCandle.availableAt);
+
+  if (!signalCandle.isClosed) {
+    throw new RangeError('The H1 signal candle must be closed.');
+  }
+
+  assertNotAfter(signalCloseTime, decisionAt, 'signal candle closeTime');
+  assertNotAfter(signalAvailableAt, decisionAt, 'signal candle availableAt');
+
+  if (input.indicator.instrumentId !== signalCandle.instrumentId) {
+    throw new RangeError(
+      'indicator instrumentId must match the signal candle instrumentId.',
+    );
+  }
+
+  if (input.indicator.timeframe !== signalCandle.timeframe) {
+    throw new RangeError(
+      'indicator timeframe must match the signal candle timeframe.',
+    );
+  }
+
+  const indicatorCandleCloseTime = asInstantString(
+    input.indicator.candleCloseTime,
+  );
+  const indicatorComputedAt = asInstantString(input.indicator.computedAt);
+
+  if (
+    Temporal.Instant.compare(indicatorCandleCloseTime, signalCloseTime) !== 0
+  ) {
+    throw new RangeError(
+      'indicator candleCloseTime must match the signal candle closeTime.',
+    );
+  }
+
+  assertNotAfter(indicatorComputedAt, decisionAt, 'indicator computedAt');
   const { currentCloudTop, currentCloudBottom, kijunSlope } = input.indicator;
 
   assertFinite(currentCloudTop, 'currentCloudTop');
@@ -118,6 +178,31 @@ export function evaluateH1Candidate(
     input.index,
     input.breakoutLookback,
   );
+
+  const breakoutStart = Math.max(0, input.index - input.breakoutLookback);
+
+  for (
+    let candleIndex = breakoutStart;
+    candleIndex <= input.index;
+    candleIndex += 1
+  ) {
+    const breakoutCandle = candleAt(input.candles, candleIndex);
+
+    if (!breakoutCandle.isClosed) {
+      throw new RangeError(
+        `Breakout candle ${String(candleIndex)} must be closed.`,
+      );
+    }
+
+    const availableAt = asInstantString(breakoutCandle.availableAt);
+
+    if (Temporal.Instant.compare(availableAt, decisionAt) > 0) {
+      throw new RangeError(
+        `Breakout candle ${String(candleIndex)} availableAt must not be after decisionAt.`,
+      );
+    }
+  }
+
   const reasons: CandidateReason[] = [];
   const requiredCloud =
     input.direction === 'LONG' ? currentCloudTop : currentCloudBottom;
@@ -181,9 +266,11 @@ export function evaluateH1Candidate(
     status: frozenReasons.length === 0 ? 'APPROVED' : 'REJECTED',
     direction: input.direction,
     decisionAt,
-    signalCandleCloseTime: signalCandle.closeTime,
+    signalCandleCloseTime: signalCloseTime,
     trendCandleCloseTime,
     strategyVersion: input.strategyVersion,
+    datasetVersion: input.datasetVersion,
+    indicatorConfigVersion: input.indicator.configVersion,
     reasons: frozenReasons,
   });
 }

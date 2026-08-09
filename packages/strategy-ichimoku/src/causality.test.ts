@@ -1,5 +1,5 @@
 import { selectLatestAvailableClosedCandle } from '@trading-auto/calendars';
-import type { Candle } from '@trading-auto/domain';
+import { asDecimalString, type Candle } from '@trading-auto/domain';
 import { computeIchimoku, type IchimokuConfig } from '@trading-auto/indicators';
 import { buildCandle } from '@trading-auto/test-helpers';
 import { describe, expect, it } from 'vitest';
@@ -24,18 +24,25 @@ function instantAt(hour: number): string {
   return new Date(Date.UTC(2026, 0, 1, hour)).toISOString();
 }
 
-function series(length: number, futureShockAt: number): readonly Candle[] {
+function series(
+  length: number,
+  futureShockAt: number,
+  timeframe: '1h' | '4h' = '1h',
+  startHour = 0,
+  durationHours = 1,
+): readonly Candle[] {
   return Array.from({ length }, (_, index) => {
     const baseline =
       index < futureShockAt ? 100 + index * 2 : 10_000 - index * 50;
     const close = String(baseline);
 
     return buildCandle({
-      sourceTimestamp: instantAt(index),
-      openTime: instantAt(index),
-      closeTime: instantAt(index + 1),
-      availableAt: instantAt(index + 1),
-      ingestedAt: instantAt(index + 1),
+      timeframe,
+      sourceTimestamp: instantAt(startHour + index * durationHours),
+      openTime: instantAt(startHour + index * durationHours),
+      closeTime: instantAt(startHour + (index + 1) * durationHours),
+      availableAt: instantAt(startHour + (index + 1) * durationHours),
+      ingestedAt: instantAt(startHour + (index + 1) * durationHours),
       open: close,
       high: String(baseline + 1),
       low: String(baseline - 1),
@@ -91,11 +98,13 @@ function runPipeline(
     decisionAt,
     trendCandleCloseTime: trendCandle.closeTime,
     strategyVersion: 'ichimoku-v1',
+    datasetVersion: 'dataset-v1',
   });
   const stop = proposeKijunStop(
     'LONG',
-    signalIndicator.kijun,
+    signalIndicator.kijunPrice,
     decisionCandle.close,
+    asDecimalString('1'),
   );
 
   return {
@@ -113,9 +122,9 @@ describe('full strategy causality', () => {
   it('keeps every decision-time result unchanged when future candles are appended', () => {
     const decisionIndex = 90;
     const h1WithFuture = series(120, decisionIndex + 1);
-    const trendWithFuture = series(120, decisionIndex + 1);
+    const trendWithFuture = series(120, 112, '4h', -360, 4);
     const h1AtDecision = h1WithFuture.slice(0, decisionIndex + 1);
-    const trendAtDecision = trendWithFuture.slice(0, decisionIndex + 1);
+    const trendAtDecision = trendWithFuture.slice(0, 112);
 
     const prefixResult = runPipeline(
       h1AtDecision,

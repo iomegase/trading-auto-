@@ -1,4 +1,4 @@
-import type { Candle } from '@trading-auto/domain';
+import { assertCandleSeries, type Candle } from '@trading-auto/domain';
 
 import { StrategyDecimal } from './decimal.js';
 
@@ -21,6 +21,8 @@ export function detectBreakout(
   index: number,
   lookback: number,
 ): BreakoutResult {
+  assertCandleSeries(candles);
+
   if (!Number.isSafeInteger(index) || index < 0 || index >= candles.length) {
     throw new RangeError(
       'index must be a safe integer within the candle array.',

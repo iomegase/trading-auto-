@@ -13,27 +13,41 @@ import { buildCandle } from '@trading-auto/test-helpers';
 import { Decimal } from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 
-import {
-  evaluateH1Candidate,
-  evaluateH4Regime,
-  type H1CandidateInput,
-} from './index.js';
+import { evaluateH1Candidate, type H1CandidateInput } from './index.js';
 
 const decisionAt = asInstantString('2026-01-01T09:00:00Z');
 const trendCandleCloseTime = asInstantString('2026-01-01T08:00:00Z');
 
-function candle(high: string, low: string, close: string): Readonly<Candle> {
-  return buildCandle({ open: close, high, low, close });
+function candle(
+  high: string,
+  low: string,
+  close: string,
+  index = 0,
+): Readonly<Candle> {
+  const openTime = new Date(Date.UTC(2026, 0, 1, index)).toISOString();
+  const closeTime = new Date(Date.UTC(2026, 0, 1, index + 1)).toISOString();
+
+  return buildCandle({
+    sourceTimestamp: openTime,
+    openTime,
+    closeTime,
+    availableAt: closeTime,
+    ingestedAt: closeTime,
+    open: close,
+    high,
+    low,
+    close,
+  });
 }
 
 function longCandles(
   close = '105',
 ): readonly [Readonly<Candle>, Readonly<Candle>] {
-  return [candle('100', '90', '95'), candle(close, '101', close)];
+  return [candle('100', '90', '95'), candle(close, '101', close, 1)];
 }
 
 function shortCandles(): readonly [Readonly<Candle>, Readonly<Candle>] {
-  return [candle('110', '100', '105'), candle('99', '88', '89')];
+  return [candle('110', '100', '105'), candle('99', '88', '89', 1)];
 }
 
 function point(
@@ -84,6 +98,7 @@ function longInput(
     decisionAt,
     trendCandleCloseTime,
     strategyVersion: 'ichimoku-v1',
+    datasetVersion: 'dataset-v1',
     ...overrides,
   };
 }
@@ -122,6 +137,8 @@ describe('evaluateH1Candidate', () => {
       signalCandleCloseTime: itemAt(input.candles, 1).closeTime,
       trendCandleCloseTime,
       strategyVersion: 'ichimoku-v1',
+      datasetVersion: 'dataset-v1',
+      indicatorConfigVersion: 'candidate-test-v1',
       reasons: [],
     });
   });
@@ -146,6 +163,8 @@ describe('evaluateH1Candidate', () => {
       signalCandleCloseTime: itemAt(candles, 1).closeTime,
       trendCandleCloseTime,
       strategyVersion: 'ichimoku-v1',
+      datasetVersion: 'dataset-v1',
+      indicatorConfigVersion: 'candidate-test-v1',
       reasons: [],
     });
   });
@@ -183,7 +202,7 @@ describe('evaluateH1Candidate', () => {
       input: (() => {
         const candles = [
           candle('106', '90', '100'),
-          candle('105', '101', '105'),
+          candle('105', '101', '105', 1),
         ];
         return longInput({ candles, indicator: point(itemAt(candles, 1)) });
       })(),
@@ -234,7 +253,10 @@ describe('evaluateH1Candidate', () => {
     {
       label: 'SHORT breakout is not confirmed',
       input: (() => {
-        const candles = [candle('110', '94', '100'), candle('99', '95', '95')];
+        const candles = [
+          candle('110', '94', '100'),
+          candle('99', '95', '95', 1),
+        ];
         return longInput({
           direction: 'SHORT',
           regime: 'BEARISH',
@@ -255,7 +277,7 @@ describe('evaluateH1Candidate', () => {
   });
 
   it('collects combined failures in deterministic order without duplicates', () => {
-    const candles = [candle('110', '90', '100'), candle('105', '95', '100')];
+    const candles = [candle('110', '90', '100'), candle('105', '95', '100', 1)];
     const input = longInput({
       regime: 'BEARISH',
       candles,
@@ -370,7 +392,10 @@ describe('evaluateH1Candidate', () => {
   it('compares a huge DecimalString close exactly', () => {
     const prior = `1${'0'.repeat(400)}`;
     const close = `1${'0'.repeat(399)}1`;
-    const candles = [candle(prior, prior, prior), candle(close, close, close)];
+    const candles = [
+      candle(prior, prior, prior),
+      candle(close, close, close, 1),
+    ];
 
     expect(
       evaluateH1Candidate(
@@ -398,7 +423,10 @@ describe('evaluateH1Candidate', () => {
   });
 
   it('derives output timestamps, preserves metadata, and freezes the result', () => {
-    const input = longInput({ strategyVersion: 'ichimoku-v2' });
+    const input = longInput({
+      strategyVersion: 'ichimoku-v2',
+      datasetVersion: 'dataset-v2',
+    });
     const result = evaluateH1Candidate(input);
 
     expect(result).toMatchObject({
@@ -406,6 +434,8 @@ describe('evaluateH1Candidate', () => {
       signalCandleCloseTime: itemAt(input.candles, 1).closeTime,
       trendCandleCloseTime,
       strategyVersion: 'ichimoku-v2',
+      datasetVersion: 'dataset-v2',
+      indicatorConfigVersion: 'candidate-test-v1',
     });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.reasons)).toBe(true);
@@ -444,6 +474,26 @@ describe('evaluateH1Candidate', () => {
       expect(() => evaluateH1Candidate(longInput({ strategyVersion }))).toThrow(
         /strategyVersion/,
       );
+    },
+  );
+
+  it.each(['', '   '])('rejects blank dataset version %j', (datasetVersion) => {
+    expect(() => evaluateH1Candidate(longInput({ datasetVersion }))).toThrow(
+      /datasetVersion/,
+    );
+  });
+
+  it.each(['', '   '])(
+    'rejects blank indicator config version %j',
+    (configVersion) => {
+      const input = longInput();
+
+      expect(() =>
+        evaluateH1Candidate({
+          ...input,
+          indicator: point(itemAt(input.candles, 1), { configVersion }),
+        }),
+      ).toThrow(/indicator\.configVersion/);
     },
   );
 
@@ -520,7 +570,7 @@ describe('evaluateH1Candidate', () => {
     };
     const indicator = itemAt(computeIchimoku(candles, config), 6);
     const signalCandle = itemAt(candles, 6);
-    const regime = evaluateH4Regime(signalCandle, indicator);
+    const regime = 'BULLISH' as const;
 
     expect(indicator.currentCloudTop).toBe(10);
     expect(indicator.projectedCloudTop).toBe(22.5);
@@ -537,9 +587,132 @@ describe('evaluateH1Candidate', () => {
         indicator,
         breakoutLookback: 2,
         decisionAt: signalCandle.availableAt,
-        trendCandleCloseTime,
+        trendCandleCloseTime: asInstantString('2026-01-01T04:00:00Z'),
         strategyVersion: 'ichimoku-v1',
+        datasetVersion: 'dataset-v1',
       }).status,
     ).toBe('APPROVED');
+  });
+
+  it('rejects an unfinished H1 signal candle', () => {
+    const input = longInput();
+    const candles = [...input.candles];
+    candles[1] = buildCandle({ ...itemAt(candles, 1), isClosed: false });
+
+    expect(() => evaluateH1Candidate({ ...input, candles })).toThrow(/closed/);
+  });
+
+  it('rejects an H1 signal candle that is unavailable at decision time', () => {
+    const input = longInput();
+    const candles = [...input.candles];
+    candles[1] = buildCandle({
+      ...itemAt(candles, 1),
+      availableAt: '2026-01-01T10:00:00Z',
+      ingestedAt: '2026-01-01T10:00:00Z',
+    });
+
+    expect(() => evaluateH1Candidate({ ...input, candles })).toThrow(
+      /availableAt/,
+    );
+  });
+
+  it('rejects an H1 signal candle that closes after decision time', () => {
+    const input = longInput({
+      decisionAt: asInstantString('2026-01-01T01:30:00Z'),
+      trendCandleCloseTime: asInstantString('2026-01-01T01:00:00Z'),
+    });
+
+    expect(() => evaluateH1Candidate(input)).toThrow(/closeTime/);
+  });
+
+  it('rejects a non-H1 signal series', () => {
+    const input = longInput();
+    const candles = input.candles.map((item) =>
+      buildCandle({ ...item, timeframe: '4h' }),
+    );
+    const indicator = point(itemAt(candles, 1));
+
+    expect(() => evaluateH1Candidate({ ...input, candles, indicator })).toThrow(
+      /timeframe/,
+    );
+  });
+
+  it.each([
+    {
+      label: 'instrument',
+      overrides: { instrumentId: 'OTHER' },
+      pattern: /instrumentId/,
+    },
+    {
+      label: 'timeframe',
+      overrides: { timeframe: '4h' as const },
+      pattern: /timeframe/,
+    },
+    {
+      label: 'candle close time',
+      overrides: {
+        candleCloseTime: asInstantString('2026-01-01T03:00:00Z'),
+      },
+      pattern: /candleCloseTime/,
+    },
+  ])(
+    'rejects mismatched indicator $label provenance',
+    ({ overrides, pattern }) => {
+      const input = longInput();
+
+      expect(() =>
+        evaluateH1Candidate({
+          ...input,
+          indicator: point(itemAt(input.candles, 1), overrides),
+        }),
+      ).toThrow(pattern);
+    },
+  );
+
+  it('rejects an indicator computed after decision time', () => {
+    const input = longInput();
+
+    expect(() =>
+      evaluateH1Candidate({
+        ...input,
+        indicator: point(itemAt(input.candles, 1), {
+          computedAt: asInstantString('2026-01-01T10:00:00Z'),
+        }),
+      }),
+    ).toThrow(/computedAt/);
+  });
+
+  it('rejects a trend candle close after decision time', () => {
+    expect(() =>
+      evaluateH1Candidate(
+        longInput({
+          trendCandleCloseTime: asInstantString('2026-01-01T10:00:00Z'),
+        }),
+      ),
+    ).toThrow(/trendCandleCloseTime/);
+  });
+
+  it('rejects a breakout candle unavailable at decision time', () => {
+    const input = longInput();
+    const candles = [...input.candles];
+    candles[0] = buildCandle({
+      ...itemAt(candles, 0),
+      availableAt: '2026-01-01T10:00:00Z',
+      ingestedAt: '2026-01-01T10:00:00Z',
+    });
+
+    expect(() => evaluateH1Candidate({ ...input, candles })).toThrow(
+      /breakout.*availableAt/i,
+    );
+  });
+
+  it('rejects an unfinished prior breakout candle', () => {
+    const input = longInput();
+    const candles = [...input.candles];
+    candles[0] = buildCandle({ ...itemAt(candles, 0), isClosed: false });
+
+    expect(() => evaluateH1Candidate({ ...input, candles })).toThrow(
+      /breakout.*closed/i,
+    );
   });
 });
