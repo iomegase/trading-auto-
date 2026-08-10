@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 
-Status: approved design, awaiting written-spec review
+Status: approved for implementation; Milestones 2A, 2B, and 2C remain planned
 
 Delivery: three sequential milestones and three independent pull requests
 
