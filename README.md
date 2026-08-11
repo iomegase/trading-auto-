@@ -2,7 +2,7 @@
 
 Spécifications d'une plateforme de recherche, de backtest et de paper trading pour une stratégie Ichimoku H4/H1.
 
-La stratégie est conçue avec un capital de référence en EUR strictement plafonné à **1 000 €**. Ce plafond est une contrainte de sizing et de marge, pas une promesse de perte maximale en présence de gaps ou de produits à effet de levier.
+La baseline démarre avec `initialCapital = 1 000 EUR` et interdit toute injection de cash. Le capital de sizing est l'equity réalisée diminuée immédiatement des pertes latentes, sans inclure les gains latents, puis bornée par le `maxSizingCapital` de la `RiskPolicyVersion` active. Le plafond initial vaut `1 000 EUR`; toute augmentation est manuelle, auditée et versionnée. Ce cadre reste une contrainte de sizing et de marge, pas une promesse de perte maximale en présence de gaps ou de produits à effet de levier.
 
 - [Index des spécifications](specs/00-README.md)
 - [Configuration de recherche](specs/23-STRATEGY-CONFIG.example.json)

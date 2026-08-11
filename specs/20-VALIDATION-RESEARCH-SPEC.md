@@ -40,7 +40,12 @@ Tester au minimum plusieurs scénarios :
 - 1.5× coûts
 - 2× coûts
 
-Chaque scénario doit être simulé avec le capital réel de `1 000 EUR`, les pas de quantité, commissions minimales et contraintes de marge. Il est interdit de backtester sur un gros capital puis de diviser linéairement le résultat.
+Chaque scénario doit être simulé avec `initialCapital = 1 000 EUR`, sans injection de cash, le capital de sizing asymétrique d'ADR-011, les pas de quantité, commissions minimales et contraintes de marge. Il est interdit de backtester sur un gros capital puis de diviser linéairement le résultat.
+
+```txt
+asymmetricEquity = realizedEquity + min(0, unrealizedPnl)
+sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)
+```
 
 ## Sample Size
 
@@ -52,7 +57,8 @@ Afficher aussi :
 
 - signaux bruts
 - trades réellement exécutables
-- rejets `MIN_QUANTITY`, `COSTS`, `MARGIN`, `CAPITAL_CAP`
+- rejets `MIN_QUANTITY`, `MARGIN`, `NO_SIZING_EQUITY`, `RISK_BUDGET`,
+  `AVAILABLE_FUNDS`
 - taux de faisabilité pour un compte de `1 000 EUR`
 
 ## Multiple Testing

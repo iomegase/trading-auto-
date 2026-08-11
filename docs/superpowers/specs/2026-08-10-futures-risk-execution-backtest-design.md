@@ -55,7 +55,13 @@ contract is superseded for Milestone 2 by two separate values:
 ```text
 initialCapital = 1_000 EUR
 maxSizingCapital = 1_000 EUR for the initial RiskPolicyVersion
+referenceCurrency = accountCurrency = EUR
 ```
+
+Milestone 2A supports EUR accounts only. Capital, the sizing cap, and policy
+limits are never FX-converted between account currencies. MES P&L remains
+denominated in USD at the instrument boundary and is converted causally into the
+EUR account using the FX snapshot observable at the decision.
 
 For a decision at time `T`:
 
@@ -76,6 +82,64 @@ never raise it automatically.
 Each backtest run uses one immutable risk-policy version. A cap increase requires
 a new run for like-for-like research comparison. A future runtime may activate a
 new version only from its approval instant forward; it may never rewrite history.
+
+The baseline version is `RISK_FUTURES_V1_RESEARCH`, has
+`approvalStatus = APPROVED`, `approvedBy = RESEARCH_RISK_OWNER`, and canonical
+`approvedAt = activatedAt = 2026-01-01T00:00:00Z`. Policy construction rejects a
+blank approver, unsupported or draft status, noncanonical instants, currency
+values other than `referenceCurrency = accountCurrency = EUR`, and chronology
+where `approvedAt > activatedAt`. The runtime and persistence contracts contain
+approved, immutable versions only; drafts live outside `RiskPolicyVersion`, and
+manual approval creates the immutable version.
+
+Policy-use chronology is distinct from market-data chronology. Every evaluation
+records a canonical `riskPolicyUseMode` and `riskPolicyUseAt`:
+
+```ts
+riskPolicyUseMode: 'HISTORICAL_RESEARCH' | 'FORWARD';
+riskPolicyUseAt: InstantString;
+```
+
+- `FORWARD` requires `riskPolicyUseAt = decisionAt`;
+- `HISTORICAL_RESEARCH` requires `riskPolicyUseAt = runCreatedAt`, immutable for
+  the whole run, and permits market decisions before that control-plane instant.
+
+Both modes require `approvedAt <= activatedAt <= riskPolicyUseAt`. Thus a
+historical run created after the baseline activation may evaluate the documented
+2018–2026 market interval without claiming that the policy existed in 2018,
+while forward/live evaluation can never apply a policy before activation.
+Persistence additionally requires every `HISTORICAL_RESEARCH` risk decision to
+reference its backtest with a non-null `backtestId` and
+`riskPolicyUseAt = referencedBacktest.createdAt`. A `FORWARD` decision has no
+historical backtest link and requires `riskPolicyUseAt = decisionAt`. Milestone
+2A carries and validates the context; creation of backtest records remains in 2C.
+
+Milestone 2A policy construction also owns the exact baseline validation:
+`initialCapital` must be the canonical decimal `1000` with EUR reference and
+account currencies. A later manually approved policy may lower or raise the
+positive `maxSizingCapital`; changing that cap never changes the historical
+initial capital.
+
+The resolved `RiskPolicyVersion` is the sole authority for every governed capital
+and risk value. Copies retained in strategy configuration or API contracts are
+validated denormalizations only: the boundary canonicalizes each copy and rejects
+the input unless it is exactly equal to the resolved policy. Copies have no
+precedence and can never merge with or override policy values.
+
+The following fields are not policy mirrors. They are fixed Milestone 2A engine
+safety assertions and metadata, validated exactly as shown:
+
+```text
+futuresEligibility = RESEARCH_ONLY
+requireExplicitGrossExposureLimit = true
+includeEstimatedExitCosts = true
+rejectIfMinQuantityExceedsRiskBudget = true
+```
+
+A configuration mismatch is `INVALID_CONFIG`; a forged value reaching the public
+Risk Engine boundary is `INVALID_RISK_INPUT`. These assertions cannot override
+the policy. The FDXS/MES expected-rejection note lives separately in the
+top-level, non-governed `research` metadata object.
 
 Losses reduce `sizingEquity` immediately. Cash injection remains forbidden in the
 baseline backtest.
@@ -177,7 +241,7 @@ contract multiplier a second time.
 
 ### Versioned runtime snapshots
 
-Every external risk input is immutable and carries at least:
+Every operational market snapshot is immutable and carries at least:
 
 ```text
 version
@@ -193,14 +257,20 @@ Snapshot types include:
 - `FxSnapshot`;
 - `MarginSnapshot`;
 - `CostModelSnapshot`;
-- `FuturesEligibilitySnapshot`;
-- `RiskPolicy`.
+- `FuturesEligibilitySnapshot`.
 
-An input must be observable and valid at `decisionAt`. Passing a future-observed,
-internally inconsistent, or wrong-contract snapshot directly to the Risk Engine
-is a typed input error. A present but stale FX, margin, or eligibility snapshot
-produces a stable risk rejection. Cost coverage follows the stricter validated-run
-policy below.
+The `decisionAt` observability and validity rules apply only to FX, margin, cost,
+and eligibility snapshots. Passing a future-observed, internally inconsistent,
+or wrong-contract operational snapshot directly to the Risk Engine is a typed
+input error. A present but stale FX, margin, or eligibility snapshot produces a
+stable risk rejection. Cost coverage follows the stricter validated-run policy
+below.
+
+`RiskPolicyVersion` is instead an immutable control-plane input. It is not
+selected or freshness-checked as a market snapshot. Its chronology is validated
+by `approvedAt <= activatedAt <= riskPolicyUseAt`, with `FORWARD` requiring
+`riskPolicyUseAt = decisionAt` and `HISTORICAL_RESEARCH` requiring
+`riskPolicyUseAt = runCreatedAt`.
 
 ### Risk input and result
 
@@ -227,8 +297,9 @@ evaluateOrderRisk(
 - `REJECT`, when no tradable quantity satisfies every constraint.
 
 Every result records stable reason codes, all input versions, `decisionAt`, the
-entry and stop used, the per-contract risk, estimated costs, required margin,
-gross notional exposure, aggregate open risk, and resulting portfolio limits.
+`riskPolicyUseMode`, `riskPolicyUseAt`, nullable `backtestId`, the entry and stop
+used, the per-contract risk, estimated costs, required margin, gross notional
+exposure, aggregate open risk, and resulting portfolio limits.
 
 ### Sizing
 
@@ -240,6 +311,8 @@ worstCaseBudgetedLoss(quantity) <= sizingEquity * 0.50%
 openRiskAfterOrder <= sizingEquity * 2.00%
 marginAfterOrder <= allowedMargin
 grossExposureAfterOrder <= allowedGrossExposure
+riskGroupExposureAfterOrder <=
+  sizingEquity * riskGroupMaxExposurePct[product.riskGroup] / 100
 availableFundsAfterOrder >= costs + cashReserve
 openPositionsAfterOrder <= 4
 ```
@@ -248,10 +321,16 @@ openPositionsAfterOrder <= 4
 spread, commissions, exchange/clearing fees, and all declared fixed or tiered
 costs. A bounded grid search is required when costs are nonlinear.
 
-The risk policy must contain an explicit, versioned futures leverage or gross
-exposure limit. There is no hidden default and margin compliance does not replace
-notional-exposure measurement. Synthetic tests may declare scenario-specific
-limits, but those limits do not claim real-world eligibility.
+Every leveraged product requires both an explicit gross-exposure limit and an
+explicit margin limit. For futures, the policy must explicitly provide both
+`maxGrossExposurePct` and `maxMarginUsagePct`; neither receives a default. Margin
+compliance does not replace notional-exposure measurement. Synthetic tests may
+declare scenario-specific limits, but those limits do not claim real-world
+eligibility.
+
+The policy must contain `riskGroupMaxExposurePct[product.riskGroup]`. A missing
+key is an `INVALID_RISK_INPUT` because the governed policy is incomplete; it
+never receives a default. Equality with the computed allowance is admissible.
 
 If one contract exceeds any risk, margin, cost, cash, or exposure constraint,
 the result is `REJECT`. The engine never rounds a zero quantity up to one
@@ -260,6 +339,12 @@ contract.
 Additional guards include stale FX, incoherent tick economics, invalid stop,
 duplicate position or entry intent, risk-group limits, daily loss, drawdown,
 kill switch, and signal expiry.
+
+A requested quantity above `maxContractsPerPosition` is reduced to the capped
+feasible quantity with stable reason `MAX_CONTRACTS_PER_POSITION`. If no capped
+quantity is feasible, the rejection includes that reason plus the applicable
+minimum-quantity constraint reasons. Without a requested quantity, the maximum
+contracts value is only the search bound and does not add that reason.
 
 ### 2A tests
 
@@ -277,6 +362,10 @@ Required test families include:
 - realized-profit compounding within the approved cap;
 - immediate downsizing after loss;
 - position, entry-intent, pyramiding, hedge, and risk-group guards;
+- exact risk-group boundary and missing policy-key rejection;
+- requested-quantity reduction and rejection at `maxContractsPerPosition`;
+- forward and historical policy-use chronology, including mismatch rejection;
+- fixed safety-assertion mismatches independently from policy-mirror mismatches;
 - global decimal-configuration contamination;
 - deterministic equality with future snapshots appended.
 
@@ -499,8 +588,8 @@ orchestration. No strategy formula is embedded in the backtester.
 Metrics include total return, maximum drawdown, daily Sharpe and Sortino when
 statistically defined, profit factor, expectancy in R, trade count, win rate,
 average and median R, average winner and loser, exposure, holding time, MAE, MFE,
-turnover, costs as a share of gross P&L, feasible-signal rate, and risk rejection
-counts by reason.
+turnover, costs as a share of gross P&L, feasible-signal rate, and risk-decision
+counts by status and reason. Reduction reasons are never counted as rejections.
 
 Sharpe and Sortino use the declared daily portfolio-return series, never raw
 trade R-multiples. Undefined metrics remain explicitly `null`; the engine does
@@ -515,6 +604,9 @@ datasetVersion
 strategyVersion
 indicatorConfigVersion
 riskPolicyVersion
+riskPolicyUseMode
+riskPolicyUseAt
+runCreatedAt
 costModelVersion
 marginModelVersion
 fxDatasetVersion
@@ -546,6 +638,9 @@ Required tests include:
 - no sizing increase from unrealized gains;
 - immediate sizing reduction from unrealized losses;
 - future-event append causality;
+- immutable `HISTORICAL_RESEARCH` policy-use time across the run;
+- non-null historical risk-decision `backtestId`, matching the referenced run's
+  `createdAt`, and absent links on `FORWARD` decisions;
 - deeply equal repeated runs;
 - `INVALID_DATA` on missing settlements, schedules, required costs, contract
   coverage, or FX needed to value an existing position;

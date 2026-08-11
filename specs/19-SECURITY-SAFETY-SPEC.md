@@ -13,16 +13,21 @@ Jamais dans Git :
 ```txt
 TRADING_MODE=DISABLED
 ALLOW_LIVE_TRADING=false
-MAX_STRATEGY_CAPITAL_EUR=1000
+INITIAL_MAX_SIZING_CAPITAL_EUR=1000
 ```
 
 L'application ne peut pas passer en live si `ALLOW_LIVE_TRADING` n'est pas explicitement activé côté serveur.
 
 Dans la V1 de recherche, `SEMI_AUTO` et `AUTO` restent tous deux indisponibles même si une variable locale est modifiée. Une future activation nécessite une version post-V1 et une décision explicite.
 
-`MAX_STRATEGY_CAPITAL_EUR` est un plafond serveur : une configuration utilisateur peut le réduire mais jamais l'augmenter. Les fonds d'autres stratégies ou du reste du compte ne peuvent pas être utilisés implicitement.
+`INITIAL_MAX_SIZING_CAPITAL_EUR` initialise la baseline. Selon ADR-011, la valeur effective provient de la `RiskPolicyVersion` active; son augmentation exige une nouvelle version manuellement approuvée, auditée et activée. Les fonds d'autres stratégies ou du reste du compte ne peuvent pas être utilisés implicitement.
 
-Le démarrage échoue si cette valeur n'est pas strictement positive ou dépasse `1000`. Le maximum absolu de `1 000 EUR` est également validé dans le code de domaine et ne dépend pas uniquement d'une variable d'environnement.
+```txt
+asymmetricEquity = realizedEquity + min(0, unrealizedPnl)
+sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)
+```
+
+Le démarrage échoue si cette valeur n'est pas strictement positive ou diffère de `1000` pour la baseline. Le plafond n'est pas permanent : son évolution est validée par une nouvelle `RiskPolicyVersion`, jamais par une variable d'environnement seule.
 
 ## Kill Switch
 
@@ -43,7 +48,7 @@ Le frontend ne peut jamais modifier directement :
 - broker destination
 - risk result
 - live permission
-- capital effectif ou plafond de stratégie
+- capital de sizing, `maxSizingCapital` ou version de politique de risque
 
 ## Immutable Strategy Versions
 

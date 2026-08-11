@@ -15,8 +15,8 @@ Il protège le portefeuille et transforme un setup en quantité autorisée.
 ## Entrées
 
 - account equity
-- equity attribuée à la stratégie
-- plafond de capital de référence (`1 000 EUR`)
+- equity réalisée et P&L non réalisé attribués à la stratégie
+- `maxSizingCapital` de la `RiskPolicyVersion` active
 - account currency
 - current portfolio
 - entry reference / executable price
@@ -37,17 +37,17 @@ Il protège le portefeuille et transforme un setup en quantité autorisée.
 ## Position Sizing
 
 ```txt
-hardCapAccount =
-  conservativeFxConvert(1 000 EUR, accountCurrency)
+asymmetricEquityAccount =
+  realizedEquityAccount + min(0, unrealizedPnlAccount)
 
-effectiveCapitalAccount =
-  min(strategyEquityAccount, hardCapAccount)
+sizingEquityAccount =
+  min(max(0, asymmetricEquityAccount), maxSizingCapitalAccount)
 
 riskRate =
   riskPerTradePct / 100
 
 riskBudgetAccount =
-  effectiveCapitalAccount * riskRate
+  sizingEquityAccount * riskRate
 
 stopDistance =
   abs(entryPrice - roundedExecutableStopPrice)
@@ -59,13 +59,16 @@ riskPerUnitAccount =
   riskPerUnitQuote * fxPnlToAccount
 
 allowedMargin =
-  effectiveCapitalAccount * maxMarginUsagePct / 100
+  sizingEquityAccount * maxMarginUsagePct / 100
 
 allowedGrossExposure =
-  effectiveCapitalAccount * maxGrossExposurePct / 100
+  sizingEquityAccount * maxGrossExposurePct / 100
 
 allowedOpenRisk =
-  effectiveCapitalAccount * maxOpenRiskPct / 100
+  sizingEquityAccount * maxOpenRiskPct / 100
+
+allowedRiskGroupExposure =
+  sizingEquityAccount * riskGroupMaxExposurePct[product.riskGroup] / 100
 ```
 
 La quantité approuvée est la plus grande quantité sur la grille `quantityStep` qui satisfait simultanément :
@@ -75,12 +78,18 @@ worstCaseBudgetedLoss(quantity) <= riskBudgetAccount
 marginAfterOrder <= allowedMargin
 grossExposureAfterOrder <= allowedGrossExposure
 openRiskAfterOrder <= allowedOpenRisk
+riskGroupExposureAfterOrder <= allowedRiskGroupExposure
 availableFundsAfterOrder >= budgetedCostsAndCashReserve
 ```
 
 où `worstCaseBudgetedLoss` inclut la perte au stop, le spread, les commissions, les frais, le financement prévisible et le slippage adverse d'entrée/sortie. Cette recherche sur la grille est obligatoire lorsque les commissions minimales ou paliers rendent la formule non linéaire.
 
 `grossExposureAfterOrder` est la somme des notionnels absolus, convertis dans la devise du compte. Les positions opposées ne se compensent pas dans cette mesure.
+
+La clé `riskGroupMaxExposurePct[product.riskGroup]` est obligatoire. Son absence
+est une erreur typée `INVALID_RISK_INPUT` signalant une politique gouvernée
+incomplète; aucune valeur par défaut n'est appliquée. L'égalité exacte avec
+`allowedRiskGroupExposure` est admissible.
 
 Si la plus grande quantité admissible sur la grille est inférieure à `minQuantity`, la décision est `REJECT`. Il est interdit d'arrondir à `minQuantity` car cela dépasserait le budget de risque.
 
@@ -104,8 +113,8 @@ Refuser si :
 - valeur monétaire par unité de prix invalide ou incohérente
 - prix ou stop non aligné sur le tick après arrondi contrôlé
 - FX stale/invalide
-- capital effectif ou conversion du plafond indisponible
-- capital effectif supérieur au plafond après erreur de configuration
+- equity asymétrique, capital de sizing ou `RiskPolicyVersion` indisponible
+- capital de sizing supérieur au `maxSizingCapital` après erreur de configuration
 - quantity < minQuantity
 - max positions dépassé
 - position ou intention d'entrée déjà active sur l'instrument
@@ -113,12 +122,21 @@ Refuser si :
 - max risk group dépassé
 - marge insuffisante
 - fonds disponibles insuffisants après réserve des coûts
-- limite de marge ou d'exposition brute absente pour un produit à levier
+- limite explicite de marge ou d'exposition brute absente pour tout instrument à levier
 - coûts estimés supérieurs ou égaux au budget de risque
 - daily loss guard atteint
 - drawdown guard atteint
 - kill switch actif
 - signal expiré
+
+Réduire si :
+
+Une quantité demandée supérieure à `maxContractsPerPosition` produit
+`REDUCE_SIZE` avec la raison stable `MAX_CONTRACTS_PER_POSITION` lorsqu'une
+quantité plafonnée est admissible. Si aucune ne l'est, `REJECT` conserve cette
+raison ainsi que les contraintes applicables à la quantité minimale. Lorsque la
+quantité n'est pas demandée explicitement, le plafond borne seulement la
+recherche et n'ajoute pas cette raison.
 
 ## Open Risk
 
@@ -141,11 +159,41 @@ maxOpenRisk = 2.00%
 maxOpenPositions = 4
 maxGrossExposure = 100.00%
 maxMarginUsage = 100.00%
-hardCapitalCap = 1 000 EUR
+initialMaxSizingCapital = 1 000 EUR
 ```
 
-Les paramètres de risque peuvent être réduits et ne sont pas optimaux par définition. Le plafond de capital constitue une borne supérieure non augmentable.
+La factory `RiskPolicyVersion` est propriétaire de la validation de baseline 2A :
+elle accepte uniquement le décimal canonique `initialCapital = 1000` avec compte
+et référence EUR. Elle rejette notamment `900`, `1000.01` et toute représentation
+mal formée. La baseline interdit toute injection de cash. Le capital de sizing
+est l'equity réalisée diminuée immédiatement des pertes latentes, sans inclure
+les gains latents, puis bornée par le `maxSizingCapital` de la
+`RiskPolicyVersion` active. Le plafond initial vaut `1 000 EUR`; une nouvelle
+version manuellement approuvée peut ensuite définir un plafond positif supérieur
+ou inférieur au capital initial.
 
-Le plafond `hardCapitalCap` ne peut pas être augmenté par une configuration de stratégie. Le réduire crée une nouvelle version valide ; le dépasser est une erreur de validation.
+Les paramètres de risque peuvent être réduits et ne sont pas optimaux par définition. Tout produit à levier exige des limites explicites d'exposition brute et de marge. En complément, toute `RiskPolicyVersion` futures doit fournir explicitement `maxGrossExposurePct` et `maxMarginUsagePct`; aucune valeur par défaut ne peut approuver un ordre futures. Respecter la marge ne remplace jamais les limites de risque au stop, coûts ou notionnel.
+
+La `RiskPolicyVersion` résolue par son identifiant est l'unique autorité. Les
+copies de capital initial/plafond, devises, modes, pourcentages de risque,
+comptages, limites d'exposition brute/marge et carte de risk groups sont des
+dénormalisations validées : toute différence avec la politique résolue est une
+erreur d'entrée, jamais une surcharge ou une règle de priorité.
+
+Les champs suivants ne sont pas des miroirs de `RiskPolicyVersion`; ce sont des
+assertions de sécurité et métadonnées moteur fixes du jalon 2A :
+
+```txt
+futuresEligibility = RESEARCH_ONLY
+requireExplicitGrossExposureLimit = true
+includeEstimatedExitCosts = true
+rejectIfMinQuantityExceedsRiskBudget = true
+```
+
+Le parseur de configuration exige exactement ces constantes. Une divergence
+produit `INVALID_CONFIG`; un objet forgé qui atteint la frontière publique du
+Risk Engine produit `INVALID_RISK_INPUT`. Ces assertions ne fusionnent pas avec
+la politique et ne peuvent jamais la surcharger. La note d'éligibilité FDXS/MES
+vit dans l'objet top-level `research` et reste une métadonnée non gouvernée.
 
 Avec la baseline EUR à `1 000 EUR`, `0.50%` correspond à un budget maximal de `5 EUR` par trade, coûts et slippage budgétés inclus. Si aucune quantité négociable ne respecte ce budget, le résultat attendu est `REJECT`.

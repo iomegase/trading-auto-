@@ -23,7 +23,7 @@ interface BrokerAdapter {
 - server-side risk recheck
 - tick rounding
 - quantity step
-- capital effectif `<= 1 000 EUR`
+- capital de sizing calculé selon ADR-011 : `asymmetricEquity = realizedEquity + min(0, unrealizedPnl)` ; `sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)`
 - marge et exposition après ordre
 - perte au stop estimée frais inclus
 - idempotency

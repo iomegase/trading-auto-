@@ -1,11 +1,17 @@
 {
   "strategyKey": "ICHIMOKU_TREND_BREAKOUT_V1",
   "version": "1.1.0-research",
+  "research": {
+    "researchEligibilityNote": "FDXS/MES are expected to reject under maxGrossExposurePct 100.0 unless a separately reviewed RiskPolicyVersion changes it."
+  },
   "capital": {
     "referenceCurrency": "EUR",
+    "accountCurrency": "EUR",
     "backtestInitialCapital": 1000,
-    "hardCapitalCapEur": 1000,
-    "allowCashInjection": false
+    "initialMaxSizingCapital": 1000,
+    "allowCashInjection": false,
+    "sizingEquityMode": "REALIZED_PLUS_UNREALIZED_LOSSES",
+    "capIncreaseMode": "MANUAL_VERSIONED"
   },
   "timing": {
     "decisionMode": "ON_SIGNAL_CANDLE_CLOSE",
@@ -55,14 +61,21 @@
     "sameInstrumentHedgingEnabled": false
   },
   "risk": {
+    "policyVersion": "RISK_FUTURES_V1_RESEARCH",
+    "maxContractsPerPosition": 4,
+    "futuresEligibility": "RESEARCH_ONLY",
+    "requireExplicitGrossExposureLimit": true,
     "riskPerTradePct": 0.5,
     "maxOpenRiskPct": 2.0,
     "maxOpenPositions": 4,
     "maxGrossExposurePct": 100.0,
     "maxMarginUsagePct": 100.0,
+    "riskGroupMaxExposurePct": {
+      "EUROPE_EQUITY_INDEX": 100.0,
+      "US_EQUITY_INDEX": 100.0
+    },
     "includeEstimatedExitCosts": true,
-    "rejectIfMinQuantityExceedsRiskBudget": true,
-    "riskGroupLimitsEnabled": false
+    "rejectIfMinQuantityExceedsRiskBudget": true
   },
   "execution": {
     "mode": "DISABLED",

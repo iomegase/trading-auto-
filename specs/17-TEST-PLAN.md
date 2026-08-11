@@ -68,9 +68,16 @@ Le test doit couvrir :
 
 ## Risk
 
-- compte EUR à `800` → capital effectif `800`
-- compte EUR à `2 500` → capital effectif `1 000`
-- compte non-EUR → conversion conservative et fraîche du plafond `1 000 EUR`
+Politique ADR-011 testée :
+
+```txt
+asymmetricEquity = realizedEquity + min(0, unrealizedPnl)
+sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)
+```
+
+- equity réalisée `800`, P&L latent `0` → capital de sizing `800`
+- equity réalisée `1 000`, gain latent `500` → capital de sizing `1 000`
+- equity réalisée `1 000`, perte latente `200` → capital de sizing `800` immédiatement
 - `riskPerTradePct = 0.5` sur `1 000 EUR` → budget total maximal `5 EUR`
 - coûts fixes/variables et slippage inclus dans le budget de `5 EUR`
 - quantité minimale au-dessus du budget → `REJECT`, jamais arrondi à la hausse
@@ -83,14 +90,42 @@ Le test doit couvrir :
 - stale quote
 - insufficient margin
 - risk group limit
+- égalité exacte avec la limite du risk group admise
+- clé `riskGroupMaxExposurePct[product.riskGroup]` absente → `INVALID_RISK_INPUT`
+- requête au-dessus de `maxContractsPerPosition` → raison stable
+  `MAX_CONTRACTS_PER_POSITION` en réduction ou rejet selon faisabilité
 - marge/exposition obligatoire pour instrument à levier
-- capital effectif ne dépasse jamais `1 000 EUR` après arrondis
+- capital de sizing ne dépasse jamais le `maxSizingCapital` après arrondis
+- contexte `accountCurrency != EUR` rejeté en 2A
+- P&L MES en USD converti causalement vers le compte EUR avec le snapshot FX
+  observable, sans conversion FX du plafond de capital
+- factory 2A rejette `initialCapital` égal à `900`, `1000.01` ou mal formé, mais
+  accepte une nouvelle politique à capital initial `1000` avec plafond positif
+  inférieur à `1000`
+- objet runtime forgé avec statut brouillon/non approuvé rejeté, ainsi qu'une
+  politique sans approbateur ou avec `approvedAt > activatedAt`
+- `approvedAt <= activatedAt <= riskPolicyUseAt` dans les deux modes
+- `FORWARD` exige `riskPolicyUseAt = decisionAt`; tout écart est rejeté
+- `FORWARD` exige `backtestId = null`; `HISTORICAL_RESEARCH` exige un
+  `backtestId` non nul et `riskPolicyUseAt = runCreatedAt`, puis accepte des
+  décisions de marché historiques antérieures à cet instant
+- persistance historique : FK `risk_decisions.backtest_id` valide et
+  `risk_policy_use_at = referenced backtests.created_at`; lien interdit en
+  `FORWARD`
+- politique activée après `riskPolicyUseAt` rejetée dans les deux modes
+- toute dénormalisation de capital ou de risque différente de la
+  `RiskPolicyVersion` résolue est rejetée
+- chaque divergence des quatre assertions fixes 2A est testée séparément :
+  `INVALID_CONFIG` au parsing, `INVALID_RISK_INPUT` à la frontière risque
+- `research.researchEligibilityNote` reste une métadonnée non gouvernée et ne
+  participe ni à l'égalité de politique ni aux assertions fixes
 
 ## Capital de backtest
 
 - capital initial `1 000 EUR`
-- rejet de toute valeur supérieure
 - aucune injection de cash
+- gains latents exclus du sizing et pertes latentes appliquées immédiatement
+- augmentation du plafond seulement par nouvelle `RiskPolicyVersion` manuellement approuvée
 - aucun scaling a posteriori depuis un compte plus grand
 - comptabilisation des signaux devenus non exécutables à cause des contraintes de petite taille
 

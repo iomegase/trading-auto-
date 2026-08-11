@@ -80,22 +80,116 @@ type DecisionContext = {
 ```ts
 type StrategyCapitalContext = {
   referenceCurrency: "EUR"
-  hardCapEur: DecimalString
-  strategyEquityAccountCcy: DecimalString
-  hardCapAccountCcy: DecimalString
-  effectiveCapitalAccountCcy: DecimalString
-  fxAsOf: Instant | null
+  accountCurrency: "EUR"
+  initialCapitalAccountCcy: DecimalString
+  maxSizingCapitalAccountCcy: DecimalString
+  realizedEquityAccountCcy: DecimalString
+  unrealizedPnlAccountCcy: DecimalString
+  asymmetricEquityAccountCcy: DecimalString
+  sizingEquityAccountCcy: DecimalString
+  riskPolicyVersion: string
 }
 ```
 
 Invariant :
 
 ```txt
-effectiveCapitalAccountCcy =
-  min(strategyEquityAccountCcy, hardCapAccountCcy)
-
-0 < hardCapEur <= 1000.00
+initialCapitalAccountCcy = 1000
+maxSizingCapitalAccountCcy > 0
+asymmetricEquityAccountCcy = realizedEquityAccountCcy + min(0, unrealizedPnlAccountCcy)
+sizingEquityAccountCcy = min(max(0, asymmetricEquityAccountCcy), maxSizingCapitalAccountCcy)
 ```
+
+La baseline 2A exige `referenceCurrency = accountCurrency = "EUR"`. Le plafond
+de capital n'est soumis à aucune conversion FX : les contextes de compte non EUR
+sont rejetés. Cette restriction ne change pas la comptabilisation des produits :
+le P&L MES en USD est converti causalement en EUR avec le snapshot FX observable
+à la décision avant d'être intégré au compte EUR.
+
+## RiskPolicyVersion
+
+```ts
+type RiskPolicyVersion = Readonly<{
+  version: string
+  approvalStatus: "APPROVED"
+  referenceCurrency: "EUR"
+  accountCurrency: "EUR"
+  initialCapital: DecimalString
+  maxSizingCapital: DecimalString
+  riskPerTradePct: DecimalString
+  maxOpenRiskPct: DecimalString
+  maxOpenPositions: number
+  maxContractsPerPosition: DecimalString
+  maxGrossExposurePct: DecimalString
+  maxMarginUsagePct: DecimalString
+  cashReservePct: DecimalString
+  dailyLossLimitPct: DecimalString
+  maxDrawdownPct: DecimalString
+  riskGroupMaxExposurePct: Readonly<Record<string, DecimalString>>
+  allowCashInjection: false
+  sizingEquityMode: "REALIZED_PLUS_UNREALIZED_LOSSES"
+  capIncreaseMode: "MANUAL_VERSIONED"
+  approvedBy: string
+  approvedAt: Instant
+  activatedAt: Instant
+}>
+```
+
+Le type runtime et sa ligne persistée représentent uniquement une version
+`APPROVED` et immuable. Les brouillons vivent hors de ce type et de la table
+`risk_policy_versions`; l'approbation manuelle crée la version immuable. Un objet
+runtime forgé avec un autre statut est rejeté à la frontière.
+
+Une version possède un approbateur non vide et des instants canoniques tels que
+`approvedAt <= activatedAt`. Le jalon 2A exige en outre
+`initialCapital === "1000"` et `referenceCurrency = accountCurrency = "EUR"`.
+`maxSizingCapital` reste strictement positif et versionné; une nouvelle version
+manuellement approuvée peut le placer au-dessus ou en dessous du capital initial.
+
+```ts
+type RiskPolicyUseMode = "HISTORICAL_RESEARCH" | "FORWARD"
+
+type RiskPolicyUseContext = Readonly<{
+  riskPolicyUseMode: RiskPolicyUseMode
+  riskPolicyUseAt: InstantString
+  backtestId: string | null
+  runCreatedAt: InstantString | null
+}>
+```
+
+Toute utilisation exige
+`approvedAt <= activatedAt <= riskPolicyUseAt`. En mode `FORWARD`,
+`riskPolicyUseAt === decisionAt`, `backtestId === null` et
+`runCreatedAt === null`. En mode
+`HISTORICAL_RESEARCH`, `backtestId` est non vide,
+`riskPolicyUseAt === runCreatedAt`, reste immuable pour tout le run et peut être
+postérieur aux `decisionAt` historiques. La persistance vérifie en plus que le
+`backtestId` référence le run dont `createdAt === riskPolicyUseAt`.
+
+Dans `specs/23-STRATEGY-CONFIG.example.json`, `risk.policyVersion` sérialise la
+valeur canonique de `RiskPolicyVersion.version`; ce n'est pas un second
+identifiant de politique. La version résolue est la seule autorité. Les copies de
+capital initial/plafond, devises, modes, pourcentages de risque, comptages,
+exposition brute/marge et carte de risk groups sont des dénormalisations validées
+pour la lisibilité : chaque valeur doit être égale à la politique résolue, sinon
+la frontière rejette l'entrée. Elles n'établissent aucune priorité et ne peuvent
+jamais surcharger la politique.
+
+```ts
+type M2ARiskSafetyAssertions = Readonly<{
+  futuresEligibility: "RESEARCH_ONLY"
+  requireExplicitGrossExposureLimit: true
+  includeEstimatedExitCosts: true
+  rejectIfMinQuantityExceedsRiskBudget: true
+}>
+```
+
+Ces quatre champs ne sont pas des miroirs de `RiskPolicyVersion`. Ce sont des
+assertions/métadonnées moteur fixes du jalon 2A, validées exactement aux constantes
+ci-dessus. Une divergence produit `INVALID_CONFIG` au parsing de configuration ou
+`INVALID_RISK_INPUT` à la frontière publique du Risk Engine; elle ne peut jamais
+surcharger la politique. `research.researchEligibilityNote` est une métadonnée
+top-level non gouvernée.
 
 ## Signal
 

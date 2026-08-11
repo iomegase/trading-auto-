@@ -104,12 +104,18 @@ createEligibilitySnapshot
 createCostModelSnapshot
 selectRiskSnapshotBundle
 createRiskPolicy
+assertRiskPolicyDenormalizationMatches
+assertM2ARiskSafetyAssertions
 createRiskAccountState
 createRiskPortfolioState
 calculateSizingEquity
 evaluateOrderRisk
 RiskInputError
 RiskDecision
+RiskDecisionReason
+RiskDecisionContext
+RiskPolicyUseMode
+M2ARiskSafetyAssertions
 ```
 
 ---
@@ -184,6 +190,7 @@ Replace `StrategyCapitalContext` in `specs/04-DOMAIN-MODEL.md` with:
 ```ts
 type StrategyCapitalContext = {
   referenceCurrency: "EUR"
+  accountCurrency: "EUR"
   initialCapitalAccountCcy: DecimalString
   maxSizingCapitalAccountCcy: DecimalString
   realizedEquityAccountCcy: DecimalString
@@ -197,7 +204,7 @@ type StrategyCapitalContext = {
 Document these invariants immediately below it:
 
 ```text
-initialCapitalAccountCcy > 0
+initialCapitalAccountCcy = 1000
 maxSizingCapitalAccountCcy > 0
 asymmetricEquityAccountCcy =
   realizedEquityAccountCcy + min(0, unrealizedPnlAccountCcy)
@@ -212,6 +219,7 @@ Replace the `capital` object in `specs/23-STRATEGY-CONFIG.example.json` with:
 ```json
 "capital": {
   "referenceCurrency": "EUR",
+  "accountCurrency": "EUR",
   "backtestInitialCapital": 1000,
   "initialMaxSizingCapital": 1000,
   "allowCashInjection": false,
@@ -229,6 +237,42 @@ baseline percentages:
 "futuresEligibility": "RESEARCH_ONLY",
 "requireExplicitGrossExposureLimit": true,
 ```
+
+`risk.policyVersion` serializes the canonical `RiskPolicyVersion.version`; it is
+not a second policy identifier.
+
+Add the complete baseline mirror:
+
+```json
+"riskGroupMaxExposurePct": {
+  "EUROPE_EQUITY_INDEX": 100.0,
+  "US_EQUITY_INDEX": 100.0
+}
+```
+
+Remove `riskGroupLimitsEnabled`. The resolved `RiskPolicyVersion` is the sole
+authority. Copies of initial/max capital, currencies, modes, risk
+percentages/counts, gross/margin limits, and the risk-group map are validated
+denormalizations for readability and backward contract compatibility. The
+boundary parser must canonicalize each copy and reject any value unequal to the
+resolved policy; mirrors have no precedence and cannot override it.
+
+Classify these separately as fixed Milestone 2A engine safety assertions and
+metadata, not `RiskPolicyVersion` mirrors:
+
+```json
+"futuresEligibility": "RESEARCH_ONLY",
+"requireExplicitGrossExposureLimit": true,
+"includeEstimatedExitCosts": true,
+"rejectIfMinQuantityExceedsRiskBudget": true
+```
+
+The parser rejects any other value as `INVALID_CONFIG`. A forged mismatch at the
+public Risk Engine boundary is `INVALID_RISK_INPUT`; these fields never override
+policy values.
+
+Move `researchEligibilityNote` out of `risk` into a top-level, non-governed
+`research` metadata object while preserving the FDXS/MES expected-rejection note.
 
 Keep `maxGrossExposurePct: 100.0` in this initial research policy. Document that
 FDXS/MES are expected to reject under this value unless a separately reviewed
@@ -252,6 +296,7 @@ Apply these schema/API renames wherever the old names occur:
 
 ```text
 hard_capital_cap_eur       -> max_sizing_capital_account_ccy
+initial_capital_reference  -> initial_capital_account_ccy
 hardCapitalCapEur          -> maxSizingCapital
 hardCapEur                 -> maxSizingCapital
 effectiveCapitalAccountCcy -> sizingEquityAccountCcy
@@ -265,15 +310,17 @@ that links to ADR-011 and states that it is superseded.
 Add these explicit checklist items to `specs/22-ACCEPTANCE-CRITERIA.md` and
 `specs/26-DEFINITION-OF-DONE.md`:
 
+Use French and preserve each target file's existing list style:
+
 ```text
-- [ ] initial capital exactly `1 000 EUR`
-- [ ] no cash injection
-- [ ] initial max sizing capital exactly `1 000 EUR`
-- [ ] unrealized losses reduce sizing immediately
-- [ ] unrealized gains never increase sizing
-- [ ] cap increases require a new manually approved risk policy version
-- [ ] futures gross exposure and margin limits are both explicit
-- [ ] zero-contract sizing is never rounded up to one contract
+- capital initial exactement `1 000 EUR`
+- aucune injection de cash
+- plafond initial de capital de sizing exactement `1 000 EUR`
+- les pertes latentes réduisent immédiatement le capital de sizing
+- les gains latents n'augmentent jamais le capital de sizing
+- toute hausse du plafond exige une nouvelle version de politique de risque approuvée manuellement
+- les limites d'exposition brute et de marge des futures sont toutes deux explicites
+- une quantité nulle n'est jamais arrondie à un contrat
 ```
 
 - [ ] **Step 6: Verify there is no unmarked authoritative contradiction**
@@ -792,6 +839,7 @@ Create tests that require the exact baseline:
 ```ts
 const policyInput = {
   version: 'RISK_FUTURES_V1_RESEARCH',
+  approvalStatus: 'APPROVED',
   referenceCurrency: 'EUR',
   accountCurrency: 'EUR',
   initialCapital: '1000',
@@ -805,7 +853,6 @@ const policyInput = {
   cashReservePct: '0',
   dailyLossLimitPct: '2',
   maxDrawdownPct: '10',
-  maxGridIterations: 10000,
   riskGroupMaxExposurePct: {
     EUROPE_EQUITY_INDEX: '100',
     US_EQUITY_INDEX: '100',
@@ -813,16 +860,37 @@ const policyInput = {
   allowCashInjection: false,
   sizingEquityMode: 'REALIZED_PLUS_UNREALIZED_LOSSES',
   capIncreaseMode: 'MANUAL_VERSIONED',
+  approvedBy: 'RESEARCH_RISK_OWNER',
+  approvedAt: '2026-01-01T00:00:00Z',
+  activatedAt: '2026-01-01T00:00:00Z',
 } as const;
 
 const policy = createRiskPolicy(policyInput);
 ```
 
 Test that factories reject noncanonical decimals, values outside `0..100` where
-appropriate, `initialCapital > maxSizingCapital`, non-integer counts,
-`allowCashInjection: true`, unsupported modes, blank or duplicate risk groups,
-sparse positions/intents, duplicate position identifiers, and contradictory
-account totals.
+appropriate, `initialCapital` values `900`, `1000.01`, or malformed values,
+non-integer counts, `allowCashInjection: true`, unsupported modes, a runtime
+input cast with `DRAFT` or another unsupported approval status, a blank
+`approvedBy`, noncanonical approval/activation instants,
+`approvedAt > activatedAt`, `accountCurrency` different from
+`referenceCurrency` or currencies other than `EUR`, blank or duplicate risk
+groups, sparse positions/intents, duplicate position identifiers, and
+contradictory account totals. The runtime `RiskPolicyVersion` output type itself
+must expose only `approvalStatus: 'APPROVED'`.
+
+Add table tests for `assertRiskPolicyDenormalizationMatches`. After boundary
+canonicalization, every retained policy mirror from the API and strategy
+configuration must equal the resolved policy. Cover initial/max capital,
+currencies, modes, risk percentages/counts, gross/margin limits, and the nested
+risk-group map. Change each mirrored field in turn and require a typed input
+error. Exact mirrors pass. There is no override or precedence branch.
+
+Separately test `assertM2ARiskSafetyAssertions` with the four exact constants:
+`RESEARCH_ONLY`, `true`, `true`, `true`. Mutate each field in turn and require
+`INVALID_RISK_INPUT`; never treat one of these failures as a policy-mirror
+mismatch. Document that the configuration adapter maps the same mismatch to
+`INVALID_CONFIG` before constructing `OrderRiskInput`.
 
 Add exact asymmetric-equity assertions:
 
@@ -840,6 +908,16 @@ expect(
     }),
   ),
 ).toBe('1200');
+expect(
+  calculateSizingEquity(
+    account('1000', '0'),
+    createRiskPolicy({
+      ...policyInput,
+      version: 'RISK_CAP_800',
+      maxSizingCapital: '800',
+    }),
+  ),
+).toBe('800');
 ```
 
 - [ ] **Step 2: Run the policy/equity suites to establish RED**
@@ -854,10 +932,33 @@ Expected: FAIL because the policy, portfolio, and equity modules are absent.
 
 - [ ] **Step 3: Implement immutable policy and portfolio contracts**
 
-Implement `RiskPolicy` with the fields shown in Step 1. Percentages must be
+Implement immutable `RiskPolicyVersion` with the fields shown in Step 1;
+`createRiskPolicy` returns that contract. Percentages must be
 canonical, non-negative, and bounded by `100`, except
 `maxGrossExposurePct`, which must be strictly positive and may exceed `100` for
 an explicitly versioned futures policy.
+
+The factory accepts only `approvalStatus: 'APPROVED'`, requires exactly the
+canonical decimal `initialCapital: '1000'`, requires a nonblank
+`approvedBy`, canonical `approvedAt` and `activatedAt` instants, and
+`approvedAt <= activatedAt`. Milestone 2A also requires
+`referenceCurrency = accountCurrency = EUR`; it rejects every other account or
+reference currency and performs no FX conversion of capital-policy limits.
+`maxSizingCapital` must be strictly positive but may be lower or higher than
+`initialCapital` in a later manually approved version.
+
+Implement `assertRiskPolicyDenormalizationMatches` as the shared ingress guard for
+API/config adapters. It validates every supplied governed mirror after canonical
+parsing against the already resolved `RiskPolicyVersion`, requires the complete
+risk-group map wherever that mirror is present, throws `RiskInputError` on any
+mismatch, and never merges or overrides policy fields. Export it from the package
+barrel.
+
+Implement and export immutable `M2ARiskSafetyAssertions` plus
+`assertM2ARiskSafetyAssertions`. The latter accepts only
+`futuresEligibility: 'RESEARCH_ONLY'` and the three required `true` flags. It
+throws `RiskInputError('INVALID_RISK_INPUT')` at the public risk boundary and does
+not read or modify `RiskPolicyVersion`.
 
 Implement these account and portfolio shapes:
 
@@ -1109,13 +1210,18 @@ export interface OrderRiskInput {
   readonly stopPrice: DecimalString;
   readonly requestedQuantity?: DecimalString;
   readonly decisionAt: InstantString;
+  readonly riskPolicyUseMode: RiskPolicyUseMode;
+  readonly riskPolicyUseAt: InstantString;
+  readonly backtestId?: string;
+  readonly runCreatedAt?: InstantString;
   readonly signalExpiresAt: InstantString;
   readonly datasetVersion: string;
   readonly strategyVersion: string;
   readonly product: Readonly<FuturesProduct>;
   readonly contract: Readonly<FuturesContract>;
   readonly snapshots: Readonly<RiskSnapshotBundle>;
-  readonly policy: Readonly<RiskPolicy>;
+  readonly policy: Readonly<RiskPolicyVersion>;
+  readonly safetyAssertions: Readonly<M2ARiskSafetyAssertions>;
   readonly account: Readonly<RiskAccountState>;
   readonly portfolio: Readonly<RiskPortfolioState>;
 }
@@ -1143,6 +1249,20 @@ expect(evaluateOrderRisk(inputWithNoFeasibleContract())).toMatchObject({
   quantity: '0',
   reasons: ['RISK_BUDGET'],
 });
+
+expect(
+  evaluateOrderRisk(
+    inputFeasibleThroughFour({
+      requestedQuantity: '5',
+      policy: policy({ maxContractsPerPosition: '4' }),
+    }),
+  ),
+).toMatchObject({
+  status: 'REDUCE_SIZE',
+  requestedQuantity: '5',
+  quantity: '4',
+  reasons: ['MAX_CONTRACTS_PER_POSITION'],
+});
 ```
 
 Add table tests for stable reasons and deterministic precedence:
@@ -1153,6 +1273,7 @@ SIGNAL_EXPIRED
 POSITION_ALREADY_ACTIVE
 ENTRY_INTENT_ALREADY_ACTIVE
 MAX_POSITIONS
+MAX_CONTRACTS_PER_POSITION
 DAILY_LOSS_LIMIT
 DRAWDOWN_LIMIT
 NO_SIZING_EQUITY
@@ -1173,8 +1294,20 @@ MIN_QUANTITY
 ```
 
 Malformed records, future-observed snapshots, mismatched contracts/currencies,
-stale costs, and an excessive grid size must throw `RiskInputError` before any
-business result is returned.
+stale costs, incomplete risk-group policies, and an excessive grid size must
+throw `RiskInputError` before any business result is returned.
+
+Add focused input-boundary tests for both policy-use modes:
+
+```text
+approvedAt <= activatedAt <= riskPolicyUseAt in every mode
+FORWARD requires riskPolicyUseAt === decisionAt and rejects any mismatch
+FORWARD rejects backtestId and runCreatedAt
+HISTORICAL_RESEARCH requires a nonblank backtestId and
+  riskPolicyUseAt === runCreatedAt
+HISTORICAL_RESEARCH permits decisionAt < activatedAt when runCreatedAt is later
+activatedAt > riskPolicyUseAt rejects before business evaluation in both modes
+```
 
 - [ ] **Step 2: Run the evaluator suite to establish RED**
 
@@ -1191,12 +1324,13 @@ Expected: FAIL because `evaluateOrderRisk` is absent.
 Define:
 
 ```ts
-export type RiskRejectionReason =
+export type RiskDecisionReason =
   | 'KILL_SWITCH'
   | 'SIGNAL_EXPIRED'
   | 'POSITION_ALREADY_ACTIVE'
   | 'ENTRY_INTENT_ALREADY_ACTIVE'
   | 'MAX_POSITIONS'
+  | 'MAX_CONTRACTS_PER_POSITION'
   | 'DAILY_LOSS_LIMIT'
   | 'DRAWDOWN_LIMIT'
   | 'NO_SIZING_EQUITY'
@@ -1227,20 +1361,29 @@ export type RiskDecision =
       status: 'REDUCE_SIZE';
       requestedQuantity: DecimalString;
       quantity: DecimalString;
-      reasons: readonly RiskRejectionReason[];
+      reasons: readonly RiskDecisionReason[];
       economics: Readonly<CandidateEconomics>;
       context: Readonly<RiskDecisionContext>;
     }>
   | Readonly<{
       status: 'REJECT';
       quantity: DecimalString;
-      reasons: readonly RiskRejectionReason[];
+      reasons: readonly RiskDecisionReason[];
       economics: Readonly<CandidateEconomics> | null;
       context: Readonly<RiskDecisionContext>;
     }>;
 ```
 
-Define `RiskDecisionContext` with `decisionAt`, `signalExpiresAt`, `entryPrice`,
+`RiskDecisionReason` is shared by `REDUCE_SIZE` and `REJECT`; it is not a
+rejection-only type. `APPROVE` always has an empty reason tuple. `REDUCE_SIZE`
+contains the ordered constraints that prevented the requested quantity, while
+`REJECT` contains the ordered constraints that prevented every feasible grid
+quantity. The same stable code, including `MAX_CONTRACTS_PER_POSITION`, may
+therefore be counted separately under reduction and rejection statuses.
+
+Define `RiskPolicyUseMode = 'HISTORICAL_RESEARCH' | 'FORWARD'`. Define
+`RiskDecisionContext` with `decisionAt`, `riskPolicyUseMode`, `riskPolicyUseAt`,
+nullable `backtestId`, nullable `runCreatedAt`, `signalExpiresAt`, `entryPrice`,
 `stopPrice`, `datasetVersion`, `strategyVersion`, `riskPolicyVersion`, nullable
 `fxVersion`, nullable `marginVersion`, `costModelVersion`, nullable
 `eligibilityVersion`, `productCode`, and `contractId`. Snapshot fields are null
@@ -1267,12 +1410,30 @@ error. A selected snapshot is current only when
 `validFrom <= decisionAt < validUntil`; boundary equality at `validUntil` is
 stale.
 
+Validate the policy timeline at the same boundary. Evaluation is permitted only
+when `policy.approvalStatus === 'APPROVED'` and
+`policy.approvedAt <= policy.activatedAt <= riskPolicyUseAt`. In `FORWARD`, require
+`riskPolicyUseAt === decisionAt` and reject supplied `backtestId` or
+`runCreatedAt`. In `HISTORICAL_RESEARCH`, require a nonblank `backtestId`,
+canonical `runCreatedAt`, and `riskPolicyUseAt === runCreatedAt`; `decisionAt` may
+be earlier. Validate `safetyAssertions` independently from policy mirrors. A
+future policy relative to `riskPolicyUseAt`, a mode/use-time mismatch, a missing
+historical run link, a fixed-assertion mismatch, or a runtime object cast with
+`DRAFT` is a typed input error, never a business rejection.
+
+Milestone 2A does not create or query backtest records. It preserves the validated
+`backtestId` and `runCreatedAt` in `RiskDecisionContext`; Milestone 2C persistence
+must enforce the FK and
+`riskPolicyUseAt === referencedBacktest.createdAt`. `FORWARD` decisions persist a
+null `backtestId`.
+
 - [ ] **Step 5: Implement bounded grid search**
 
 Compute candidate quantities from `minQuantity` through
 `maxContractsPerPosition` on the exact `quantityStep` grid. Before iterating,
-compute the number of candidates and throw `GRID_TOO_LARGE` if it exceeds
-`policy.maxGridIterations`.
+compute the number of candidates and throw `GRID_TOO_LARGE` if it exceeds the
+module safety constant `MAX_GRID_ITERATIONS = 10000`. This operational bound is
+not part of the governed `RiskPolicyVersion`.
 
 For each quantity, require simultaneously:
 
@@ -1281,10 +1442,18 @@ worstCaseBudgetedLoss <= sizingEquity * riskPerTradePct / 100
 account.openRisk + candidateLoss <= sizingEquity * maxOpenRiskPct / 100
 account.usedMargin + candidateMargin <= sizingEquity * maxMarginUsagePct / 100
 account.grossExposure + candidateExposure <= sizingEquity * maxGrossExposurePct / 100
-riskGroupExposure + candidateExposure <= groupLimit
+allowedRiskGroupExposure =
+  sizingEquity * riskGroupMaxExposurePct[product.riskGroup] / 100
+riskGroupExposure + candidateExposure <= allowedRiskGroupExposure
 account.availableFunds - candidateMargin - candidateCosts
   >= sizingEquity * cashReservePct / 100
 ```
+
+Resolve `riskGroupMaxExposurePct[product.riskGroup]` before the grid search. A
+missing own key is `RiskInputError('INVALID_RISK_INPUT')`; do not use a fallback,
+another group's value, or a default. Add exact boundary tests proving equality
+with `allowedRiskGroupExposure` passes and one exact increment fails with
+`RISK_GROUP_EXPOSURE`.
 
 Retain the greatest admissible quantity. Do not stop at the first failure because
 fee minima and tiers are nonlinear. If no candidate is admissible, return zero
@@ -1298,7 +1467,12 @@ it is present, search only quantities less than or equal to both the request and
 `maxContractsPerPosition`: approve the exact request if admissible, reduce to the
 greatest lower admissible quantity otherwise, and attach the requested
 quantity's failed constraints as ordered reasons. Reject if no lower quantity is
-admissible.
+admissible. If the explicit request exceeds `maxContractsPerPosition`, always add
+`MAX_CONTRACTS_PER_POSITION` in its declared precedence position. Return
+`REDUCE_SIZE` with that reason when a capped quantity is feasible. If none is
+feasible, return `REJECT` with that reason plus the applicable reasons evaluated
+at `minQuantity`. With no explicit request, the contracts cap is only the search
+bound and never adds this reason.
 
 - [ ] **Step 6: Run focused GREEN and branch coverage**
 
@@ -1388,6 +1562,13 @@ unrealized gain has no effect
 unrealized loss reduces or rejects quantity immediately
 existing same-instrument position and intent reject
 mixed FDXS/MES positions respect aggregate and risk-group limits
+risk-group equality passes and a missing product risk-group key is invalid input
+requested quantity above the contracts cap reduces or rejects with
+  MAX_CONTRACTS_PER_POSITION; implicit sizing uses the cap without that reason
+FORWARD and HISTORICAL_RESEARCH policy-use modes preserve their time invariants
+HISTORICAL_RESEARCH requires backtestId/runCreatedAt; FORWARD rejects both
+each fixed M2A safety assertion mismatch is invalid independently from policy
+  mirror mismatch
 ambient Decimal configuration does not affect the decision
 ```
 
@@ -1437,6 +1618,7 @@ Delivered contracts
 Capital and compounding policy
 FDXS/MES fixture limitations
 Risk reasons and exact-decimal invariants
+Causal policy-use modes and activation chronology
 Causality and reproducibility guarantees
 Verification commands and observed counts
 Deferred to 2B

@@ -4,7 +4,12 @@
 
 Audit statique des fichiers `README.md` et `specs/00` à `specs/29`. Cet audit vérifie la cohérence fonctionnelle, temporelle, financière, de persistance et d'exécution. Il ne valide pas la rentabilité de la stratégie.
 
-Contrainte de produit appliquée : capital de référence et capital attribuable à la stratégie strictement `<= 1 000 EUR`.
+Politique de sizing appliquée : voir ADR-011. La baseline démarre avec `initialCapital = 1 000 EUR`, interdit toute injection de cash et borne le sizing selon l'equity asymétrique et le `maxSizingCapital` de la `RiskPolicyVersion` active.
+
+```txt
+asymmetricEquity = realizedEquity + min(0, unrealizedPnl)
+sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)
+```
 
 ## Corrections critiques appliquées
 
@@ -12,7 +17,7 @@ Contrainte de produit appliquée : capital de référence et capital attribuable
 
 Avant audit, aucun capital initial ni plafond n'était défini. Un même backtest pouvait donc produire des résultats avec une taille de compte arbitraire.
 
-Correction : baseline `1 000 EUR`, plafond serveur `1 000 EUR`, capital effectif égal au minimum entre l'equity attribuée et le plafond converti, aucune injection de cash et aucun scaling a posteriori.
+Correction : baseline `initialCapital = 1 000 EUR`, `initialMaxSizingCapital = 1 000 EUR`, aucune injection de cash et aucun scaling a posteriori. Le capital de sizing suit désormais ADR-011 : equity réalisée plus les seules pertes latentes, bornée par le `maxSizingCapital` de la `RiskPolicyVersion` active; toute hausse est manuelle, auditée et versionnée.
 
 ### 2 — Pourcentage de risque ambigu
 
@@ -36,7 +41,7 @@ Correction : champ canonique `monetaryValuePerPriceUnit`, contrôlé par `tickVa
 
 La marge était optionnelle et aucune limite d'exposition brute n'était exigée. Un stop étroit pouvait autoriser un notionnel disproportionné.
 
-Correction : marge et exposition obligatoires pour tout produit à levier. La baseline de recherche fixe toutes deux à `100%` du capital effectif ; tout levier supérieur requiert une nouvelle décision versionnée.
+Correction : marge et exposition obligatoires pour tout produit à levier. Toute `RiskPolicyVersion` futures fournit explicitement ces deux limites; aucune politique absente ne peut approuver un ordre futures. La baseline de recherche fixe toutes deux à `100%` du capital de sizing ; tout levier supérieur requiert une nouvelle politique versionnée.
 
 ### 6 — Backtest incompatible avec le petit capital
 
