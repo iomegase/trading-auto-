@@ -1,4 +1,11 @@
 import { Decimal } from 'decimal.js';
+import type { FuturesContract, FuturesProduct } from '@trading-auto/domain';
+import {
+  syntheticFdxsContract,
+  syntheticFdxsProduct,
+  syntheticMesContract,
+  syntheticMesProduct,
+} from '@trading-auto/test-helpers';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import {
@@ -34,7 +41,99 @@ import {
   buildProduct,
   buildSafetyAssertions,
   buildSnapshots,
+  type OrderRiskInputOverrides,
 } from '../test-helpers/builders.js';
+
+const M2A_DECISION_AT = '2026-03-10T09:00:00Z';
+
+function syntheticSnapshots(
+  product: Readonly<FuturesProduct>,
+  contract: Readonly<FuturesContract>,
+  fxDirection: 'DIRECT' | 'INVERSE' = 'DIRECT',
+) {
+  const metadata = {
+    source: 'SYNTHETIC_TEST_ONLY',
+    observedAt: '2026-03-10T08:00:00Z',
+    validFrom: '2026-03-10T08:00:00Z',
+    validUntil: '2026-03-10T10:00:00Z',
+  } as const;
+  const zeroFees = {
+    minimum: '0',
+    tiers: [{ upToQuantity: null, feePerContract: '0' }],
+  } as const;
+
+  return Object.freeze({
+    fx:
+      product.pnlCurrency === 'EUR'
+        ? null
+        : createFxSnapshot({
+            ...metadata,
+            version: 'FX_SYNTHETIC_EQUIVALENT',
+            baseCurrency: fxDirection === 'DIRECT' ? 'USD' : 'EUR',
+            quoteCurrency: fxDirection === 'DIRECT' ? 'EUR' : 'USD',
+            rate: fxDirection === 'DIRECT' ? '0.8' : '1.25',
+          }),
+    margin: createMarginSnapshot({
+      ...metadata,
+      version: `MARGIN_${contract.contractId}`,
+      contractId: contract.contractId,
+      currency: product.pnlCurrency,
+      initialMarginPerContract: '10',
+      maintenanceMarginPerContract: '8',
+    }),
+    eligibility: createEligibilitySnapshot({
+      ...metadata,
+      version: `ELIGIBILITY_${contract.contractId}`,
+      contractId: contract.contractId,
+      researchOnly: true,
+      eligible: true,
+      reason: null,
+    }),
+    costs: createCostModelSnapshot({
+      ...metadata,
+      version: `COSTS_${contract.contractId}`,
+      contractId: contract.contractId,
+      currency: product.pnlCurrency,
+      entryFees: zeroFees,
+      exitFees: zeroFees,
+      spreadPriceUnitsRoundTrip: '0',
+      adverseEntrySlippagePriceUnits: '0',
+      adverseExitSlippagePriceUnits: '0',
+    }),
+  });
+}
+
+function syntheticPolicy(
+  product: Readonly<FuturesProduct>,
+  overrides: Parameters<typeof buildPolicy>[0] = {},
+) {
+  return buildPolicy({
+    version: 'RISK_M2A_SYNTHETIC',
+    maxContractsPerPosition: '10',
+    riskGroupMaxExposurePct: { [product.riskGroup]: '100' },
+    ...overrides,
+  });
+}
+
+function syntheticOrderRiskInput(
+  product: Readonly<FuturesProduct>,
+  contract: Readonly<FuturesContract>,
+  overrides: OrderRiskInputOverrides = {},
+): OrderRiskInput {
+  return buildOrderRiskInput({
+    instrumentId: product.productCode,
+    entryPrice: '100',
+    stopPrice: product.tickSize === '0.5' ? '99.5' : '99.75',
+    decisionAt: M2A_DECISION_AT,
+    riskPolicyUseAt: M2A_DECISION_AT,
+    signalExpiresAt: '2026-03-10T10:00:00Z',
+    product,
+    contract,
+    snapshots: syntheticSnapshots(product, contract),
+    policy: syntheticPolicy(product),
+    ...overrides,
+  });
+}
 
 const reasonOrder = [
   'KILL_SWITCH',
@@ -1617,6 +1716,483 @@ describe('FX integration and hostile runtime boundaries', () => {
           grossExposureAccount: '100',
         },
       });
+    } finally {
+      Decimal.set(previous);
+    }
+  });
+});
+
+describe('Milestone 2A synthetic futures integration', () => {
+  it('publishes exact immutable FDXS and MES March 2026 fixtures', () => {
+    expect(syntheticFdxsProduct).toEqual({
+      productCode: 'FDXS',
+      exchange: 'EUREX',
+      underlyingId: 'DAX',
+      quoteCurrency: 'EUR',
+      pnlCurrency: 'EUR',
+      tickSize: '0.5',
+      tickValue: '0.5',
+      monetaryValuePerPriceUnit: '1',
+      quantityStep: '1',
+      minQuantity: '1',
+      riskGroup: 'EU_EQUITY_INDEX',
+    });
+    expect(syntheticFdxsContract).toEqual({
+      contractId: 'FDXSH26',
+      productCode: 'FDXS',
+      firstTradeAt: '2025-12-19T00:00:00Z',
+      lastTradeAt: '2026-03-20T12:00:00Z',
+      expiryAt: '2026-03-20T13:00:00Z',
+      settlementType: 'CASH',
+    });
+    expect(syntheticMesProduct).toEqual({
+      productCode: 'MES',
+      exchange: 'CME',
+      underlyingId: 'SP500',
+      quoteCurrency: 'USD',
+      pnlCurrency: 'USD',
+      tickSize: '0.25',
+      tickValue: '1.25',
+      monetaryValuePerPriceUnit: '5',
+      quantityStep: '1',
+      minQuantity: '1',
+      riskGroup: 'US_EQUITY_INDEX',
+    });
+    expect(syntheticMesContract).toEqual({
+      contractId: 'MESH26',
+      productCode: 'MES',
+      firstTradeAt: '2025-12-19T00:00:00Z',
+      lastTradeAt: '2026-03-20T13:30:00Z',
+      expiryAt: '2026-03-20T14:00:00Z',
+      settlementType: 'CASH',
+    });
+    for (const fixture of [
+      syntheticFdxsProduct,
+      syntheticFdxsContract,
+      syntheticMesProduct,
+      syntheticMesContract,
+    ]) {
+      expect(Object.isFrozen(fixture)).toBe(true);
+    }
+  });
+
+  it.each([
+    [syntheticFdxsProduct, syntheticFdxsContract, '15000', '14999.5'],
+    [syntheticMesProduct, syntheticMesContract, '5000', '4999.75'],
+  ] as const)(
+    'rejects %s under the initial exact 100 percent gross-exposure policy',
+    (product, contract, entryPrice, stopPrice) => {
+      const decision = evaluateOrderRisk(
+        syntheticOrderRiskInput(product, contract, {
+          entryPrice,
+          stopPrice,
+          policy: syntheticPolicy(product, {
+            version: 'RISK_M2A_INITIAL_GROSS_100',
+            maxContractsPerPosition: '1',
+            maxGrossExposurePct: '100',
+          }),
+        }),
+      );
+      expect(decision).toMatchObject({ status: 'REJECT', quantity: '0' });
+      expect(decision.reasons).toContain('GROSS_EXPOSURE');
+    },
+  );
+
+  it('approves the same FDXS order only after a manual cap policy version increase', () => {
+    const account = buildAccount({
+      realizedEquity: '1200',
+      availableFunds: '1200',
+    });
+    const initialPolicy = syntheticPolicy(syntheticFdxsProduct, {
+      version: 'RISK_M2A_CAP_1000',
+      maxSizingCapital: '1000',
+      maxContractsPerPosition: '1',
+      maxGrossExposurePct: '100',
+      riskGroupMaxExposurePct: {
+        [syntheticFdxsProduct.riskGroup]: '100',
+      },
+    });
+    const raisedPolicy = syntheticPolicy(syntheticFdxsProduct, {
+      version: 'RISK_M2A_CAP_1200',
+      maxSizingCapital: '1200',
+      maxContractsPerPosition: '1',
+      maxGrossExposurePct: '100',
+      riskGroupMaxExposurePct: {
+        [syntheticFdxsProduct.riskGroup]: '100',
+      },
+    });
+    const order = {
+      requestedQuantity: '1',
+      entryPrice: '1200',
+      stopPrice: '1199.5',
+      account,
+    } as const;
+    const before = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        ...order,
+        policy: initialPolicy,
+      }),
+    );
+    const after = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        ...order,
+        policy: raisedPolicy,
+      }),
+    );
+
+    expect(before).toMatchObject({
+      status: 'REJECT',
+      quantity: '0',
+      reasons: ['GROSS_EXPOSURE', 'RISK_GROUP_EXPOSURE'],
+      context: { riskPolicyVersion: 'RISK_M2A_CAP_1000' },
+    });
+    expect(after).toMatchObject({
+      status: 'APPROVE',
+      quantity: '1',
+      reasons: [],
+      context: { riskPolicyVersion: 'RISK_M2A_CAP_1200' },
+    });
+    expect(after.context.riskPolicyVersion).not.toBe(
+      before.context.riskPolicyVersion,
+    );
+  });
+
+  it('produces identical MES decisions for equivalent direct and inverse FX', () => {
+    const directInput = syntheticOrderRiskInput(
+      syntheticMesProduct,
+      syntheticMesContract,
+    );
+    const inverseInput = {
+      ...directInput,
+      snapshots: syntheticSnapshots(
+        syntheticMesProduct,
+        syntheticMesContract,
+        'INVERSE',
+      ),
+    };
+    expect(evaluateOrderRisk(inverseInput)).toEqual(
+      evaluateOrderRisk(directInput),
+    );
+  });
+
+  it('rejects a one-contract Kijun risk above EUR 5 without forcing or rounding quantity', () => {
+    const decision = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        entryPrice: '100',
+        stopPrice: '94',
+        policy: syntheticPolicy(syntheticFdxsProduct, {
+          maxContractsPerPosition: '1',
+          riskPerTradePct: '0.5',
+          maxGrossExposurePct: '200',
+        }),
+      }),
+    );
+    expect(decision).toMatchObject({
+      status: 'REJECT',
+      quantity: '0',
+      reasons: ['RISK_BUDGET'],
+      economics: {
+        quantity: '1',
+        worstCaseBudgetedLossAccount: '6',
+      },
+    });
+  });
+
+  it('caps realized gains until a EUR 1,200 policy version explicitly increases sizing', () => {
+    const cappedPolicy = syntheticPolicy(syntheticFdxsProduct, {
+      version: 'RISK_CAP_1000',
+      maxSizingCapital: '1000',
+      riskPerTradePct: '0.125',
+      maxGrossExposurePct: '200',
+    });
+    const baseline = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        policy: cappedPolicy,
+      }),
+    );
+    const realizedGain = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        policy: cappedPolicy,
+        account: buildAccount({
+          realizedEquity: '5000',
+          availableFunds: '5000',
+        }),
+      }),
+    );
+    expect(realizedGain).toEqual(baseline);
+    expect(realizedGain.quantity).toBe('2');
+
+    const raisedCap = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        policy: syntheticPolicy(syntheticFdxsProduct, {
+          version: 'RISK_CAP_1200',
+          maxSizingCapital: '1200',
+          riskPerTradePct: '0.125',
+          maxGrossExposurePct: '200',
+        }),
+        account: buildAccount({
+          realizedEquity: '5000',
+          availableFunds: '5000',
+        }),
+      }),
+    );
+    expect(raisedCap).toMatchObject({ status: 'APPROVE', quantity: '3' });
+  });
+
+  it('ignores unrealized gains but applies unrealized losses immediately', () => {
+    const policy = syntheticPolicy(syntheticFdxsProduct, {
+      riskPerTradePct: '0.1',
+      maxGrossExposurePct: '200',
+    });
+    const baseline = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        policy,
+      }),
+    );
+    const gain = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        policy,
+        account: buildAccount({
+          unrealizedPnl: '1000',
+          availableFunds: '2000',
+        }),
+      }),
+    );
+    const loss = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        policy,
+        account: buildAccount({
+          unrealizedPnl: '-500',
+          availableFunds: '500',
+        }),
+      }),
+    );
+    expect(gain).toEqual(baseline);
+    expect(baseline.quantity).toBe('2');
+    expect(loss).toMatchObject({ status: 'APPROVE', quantity: '1' });
+  });
+
+  it('rejects an existing position and an active intent for the same instrument', () => {
+    const position = {
+      positionId: 'POSITION_FDXS',
+      instrumentId: syntheticFdxsProduct.productCode,
+      contractId: syntheticFdxsContract.contractId,
+      direction: 'LONG' as const,
+      quantity: '1',
+      remainingOpenRisk: '0',
+      margin: '0',
+      grossExposure: '0',
+      riskGroup: syntheticFdxsProduct.riskGroup,
+    };
+    const intent = {
+      intentId: 'INTENT_FDXS',
+      instrumentId: syntheticFdxsProduct.productCode,
+      contractId: syntheticFdxsContract.contractId,
+      direction: 'LONG' as const,
+    };
+    expect(
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+          portfolio: buildPortfolio({ positions: [position] }),
+        }),
+      ).reasons,
+    ).toContain('POSITION_ALREADY_ACTIVE');
+    expect(
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+          portfolio: buildPortfolio({ activeEntryIntents: [intent] }),
+        }),
+      ).reasons,
+    ).toContain('ENTRY_INTENT_ALREADY_ACTIVE');
+  });
+
+  it('respects aggregate and exact risk-group equality across mixed FDXS/MES positions', () => {
+    const portfolio = buildPortfolio({
+      positions: [
+        {
+          positionId: 'POSITION_EU',
+          instrumentId: 'FDXS_PRIOR',
+          contractId: 'FDXSM26',
+          direction: 'LONG',
+          quantity: '1',
+          remainingOpenRisk: '0',
+          margin: '0',
+          grossExposure: '400',
+          riskGroup: syntheticFdxsProduct.riskGroup,
+        },
+        {
+          positionId: 'POSITION_US',
+          instrumentId: 'MES_PRIOR',
+          contractId: 'MESM26',
+          direction: 'LONG',
+          quantity: '1',
+          remainingOpenRisk: '0',
+          margin: '0',
+          grossExposure: '400',
+          riskGroup: syntheticMesProduct.riskGroup,
+        },
+      ],
+    });
+    const policy = syntheticPolicy(syntheticFdxsProduct, {
+      maxContractsPerPosition: '2',
+      riskPerTradePct: '100',
+      maxGrossExposurePct: '90',
+      riskGroupMaxExposurePct: {
+        [syntheticFdxsProduct.riskGroup]: '50',
+        [syntheticMesProduct.riskGroup]: '100',
+      },
+    });
+    const common = {
+      portfolio,
+      policy,
+      account: buildAccount({ grossExposure: '800' }),
+    };
+    expect(
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+          ...common,
+          requestedQuantity: '1',
+        }),
+      ),
+    ).toMatchObject({ status: 'APPROVE', quantity: '1', reasons: [] });
+    const over = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        ...common,
+        requestedQuantity: '2',
+      }),
+    );
+    expect(over).toMatchObject({ status: 'REDUCE_SIZE', quantity: '1' });
+    expect(over.reasons).toEqual(['GROSS_EXPOSURE', 'RISK_GROUP_EXPOSURE']);
+
+    expectRiskInputError(() =>
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+          policy: syntheticPolicy(syntheticFdxsProduct, {
+            riskGroupMaxExposurePct: {
+              [syntheticMesProduct.riskGroup]: '100',
+            },
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('reports an explicit cap reduction while implicit sizing uses the cap silently', () => {
+    const policy = syntheticPolicy(syntheticFdxsProduct, {
+      maxContractsPerPosition: '2',
+      riskPerTradePct: '100',
+      maxGrossExposurePct: '100',
+    });
+    expect(
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+          policy,
+          requestedQuantity: '3',
+        }),
+      ),
+    ).toMatchObject({
+      status: 'REDUCE_SIZE',
+      requestedQuantity: '3',
+      quantity: '2',
+      reasons: ['MAX_CONTRACTS_PER_POSITION'],
+    });
+    const implicit = evaluateOrderRisk(
+      syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+        policy,
+      }),
+    );
+    expect(implicit).toMatchObject({ status: 'APPROVE', quantity: '2' });
+    expect(implicit.reasons).not.toContain('MAX_CONTRACTS_PER_POSITION');
+  });
+
+  it('preserves FORWARD and HISTORICAL_RESEARCH policy-use invariants', () => {
+    expect(
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract),
+      ).context,
+    ).toMatchObject({
+      riskPolicyUseMode: 'FORWARD',
+      riskPolicyUseAt: M2A_DECISION_AT,
+      backtestId: null,
+      runCreatedAt: null,
+    });
+
+    const runCreatedAt = '2026-03-11T09:00:00Z';
+    expect(
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+          riskPolicyUseMode: 'HISTORICAL_RESEARCH',
+          riskPolicyUseAt: runCreatedAt,
+          backtestId: 'BACKTEST_M2A',
+          runCreatedAt,
+        }),
+      ).context,
+    ).toMatchObject({
+      riskPolicyUseMode: 'HISTORICAL_RESEARCH',
+      riskPolicyUseAt: runCreatedAt,
+      backtestId: 'BACKTEST_M2A',
+      runCreatedAt,
+    });
+
+    expectRiskInputError(() =>
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+          riskPolicyUseMode: 'HISTORICAL_RESEARCH',
+          riskPolicyUseAt: runCreatedAt,
+        }),
+      ),
+    );
+    expectRiskInputError(() =>
+      evaluateOrderRisk(
+        syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+          backtestId: 'BACKTEST_FORBIDDEN',
+          runCreatedAt,
+        }),
+      ),
+    );
+  });
+
+  it.each([
+    ['futuresEligibility', 'LIVE'],
+    ['requireExplicitGrossExposureLimit', false],
+    ['includeEstimatedExitCosts', false],
+    ['rejectIfMinQuantityExceedsRiskBudget', false],
+  ] as const)(
+    'rejects the fixed %s mismatch independently with an otherwise valid policy',
+    (field, value) => {
+      const error = expectRiskInputError(() =>
+        evaluateOrderRisk(
+          syntheticOrderRiskInput(syntheticFdxsProduct, syntheticFdxsContract, {
+            safetyAssertions: {
+              ...buildSafetyAssertions(),
+              [field]: value,
+            },
+          }),
+        ),
+      );
+      expect(error.details).toMatchObject({ field });
+    },
+  );
+
+  it('keeps the complete futures decision isolated from ambient Decimal settings', () => {
+    const input = syntheticOrderRiskInput(
+      syntheticMesProduct,
+      syntheticMesContract,
+    );
+    const expected = evaluateOrderRisk(input);
+    const previous = {
+      precision: Decimal.precision,
+      rounding: Decimal.rounding,
+      toExpNeg: Decimal.toExpNeg,
+      toExpPos: Decimal.toExpPos,
+      minE: Decimal.minE,
+      maxE: Decimal.maxE,
+      modulo: Decimal.modulo,
+      crypto: Decimal.crypto,
+    };
+    try {
+      Decimal.set({ precision: 2, rounding: Decimal.ROUND_DOWN });
+      expect(evaluateOrderRisk(input)).toEqual(expected);
     } finally {
       Decimal.set(previous);
     }
