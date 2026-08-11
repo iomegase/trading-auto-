@@ -1,4 +1,11 @@
 export { RiskInputError, type RiskInputErrorCode } from './errors.js';
+export {
+  calculateCandidateEconomics,
+  calculateFee,
+  resolveFxRate,
+  type CandidateEconomics,
+  type CandidateEconomicsInput,
+} from './economics.js';
 export { calculateSizingEquity } from './equity.js';
 export {
   assertM2ARiskSafetyAssertions,
