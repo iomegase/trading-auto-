@@ -8,6 +8,14 @@ export {
 } from './economics.js';
 export { calculateSizingEquity } from './equity.js';
 export {
+  evaluateOrderRisk,
+  type OrderRiskInput,
+  type RiskDecision,
+  type RiskDecisionContext,
+  type RiskDecisionReason,
+  type RiskPolicyUseMode,
+} from './evaluate.js';
+export {
   assertM2ARiskSafetyAssertions,
   assertRiskPolicyDenormalizationMatches,
   createRiskPolicy,
