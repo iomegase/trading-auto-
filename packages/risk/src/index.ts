@@ -1,4 +1,27 @@
 export { RiskInputError, type RiskInputErrorCode } from './errors.js';
+export { calculateSizingEquity } from './equity.js';
+export {
+  assertM2ARiskSafetyAssertions,
+  assertRiskPolicyDenormalizationMatches,
+  createRiskPolicy,
+  type M2ARiskSafetyAssertions,
+  type M2ARiskSafetyAssertionsInput,
+  type RiskPolicyDenormalizationInput,
+  type RiskPolicyInput,
+  type RiskPolicyVersion,
+} from './policy.js';
+export {
+  createRiskAccountState,
+  createRiskPortfolioState,
+  type ActiveEntryIntent,
+  type ActiveEntryIntentInput,
+  type RiskAccountState,
+  type RiskAccountStateInput,
+  type RiskPortfolioState,
+  type RiskPortfolioStateInput,
+  type RiskPosition,
+  type RiskPositionInput,
+} from './portfolio.js';
 export {
   createCostModelSnapshot,
   createEligibilitySnapshot,
