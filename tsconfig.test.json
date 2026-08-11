@@ -9,6 +9,7 @@
       "@trading-auto/strategy-ichimoku": [
         "./packages/strategy-ichimoku/src/index.ts"
       ],
+      "@trading-auto/risk": ["./packages/risk/src/index.ts"],
       "@trading-auto/test-helpers": ["./packages/test-helpers/src/index.ts"]
     },
     "types": ["node"]
