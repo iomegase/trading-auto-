@@ -101,7 +101,12 @@ fill au prix disponible selon le modèle d'exécution
 
 et non au stop théorique.
 
-La différence entre le fill réel/simulé et le stop est comptabilisée dans le P&L et peut faire dépasser le budget de risque prévu. Le plafond de capital de `1 000 EUR` ne doit donc jamais être présenté comme une garantie de perte maximale.
+La différence entre le fill réel/simulé et le stop est comptabilisée dans le P&L et peut faire dépasser le budget de risque prévu. Le plafond de sizing défini par ADR-011 ne doit donc jamais être présenté comme une garantie de perte maximale.
+
+```txt
+asymmetricEquity = realizedEquity + min(0, unrealizedPnl)
+sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)
+```
 
 ## Ordre des événements bar-based
 

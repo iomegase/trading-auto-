@@ -4,7 +4,7 @@
 
 Construire une plateforme de recherche, backtest, paper trading et, seulement après validation, exécution automatisée d'une stratégie Ichimoku.
 
-Le capital attribuable à cette stratégie est libellé en EUR et strictement plafonné à `1 000 EUR`. Le moteur utilise le plus petit montant entre les fonds réellement attribués et ce plafond.
+La baseline démarre avec `initialCapital = 1 000 EUR` et interdit toute injection de cash. Le capital de sizing est l'equity réalisée diminuée immédiatement des pertes latentes, sans inclure les gains latents, puis bornée par le `maxSizingCapital` de la `RiskPolicyVersion` active. Le plafond initial vaut `1 000 EUR`; toute augmentation est manuelle, auditée et versionnée.
 
 La V1 de recherche est basée sur :
 
@@ -45,7 +45,7 @@ Le backtest doit réutiliser exactement les mêmes fonctions métier que le mote
 8. Les datasets, coûts, configuration et code doivent être versionnés pour reproduire un backtest.
 9. Le score n'est pas une probabilité de succès.
 10. Le paper trading n'est pas une preuve de qualité d'exécution live.
-11. Le sizing est calculé sur un capital effectif plafonné à `1 000 EUR`, même si le compte broker contient davantage.
+11. Le sizing applique l'equity asymétrique et le `maxSizingCapital` de la `RiskPolicyVersion` active, même si le compte broker contient davantage.
 12. Les frais et le slippage budgétés font partie du risque par trade.
 13. `pointValue` et `contractMultiplier` ne peuvent pas être multipliés deux fois.
 14. Un instrument dont la quantité minimale, la marge ou les coûts dépassent les limites est non éligible ; aucun arrondi à la hausse n'est permis.
@@ -83,7 +83,7 @@ packages/
 - modèle d'exécution explicitement défini
 - décision et raisons persistées
 - Risk Engine obligatoire avant ordre
-- capital effectif de stratégie `<= 1 000 EUR`
+- capital de sizing borné par le `maxSizingCapital` de la `RiskPolicyVersion` active
 - aucune injection de capital implicite dans un backtest
 - aucune quantité minimale forcée si elle dépasse le budget de risque
 - mode live désactivé par défaut

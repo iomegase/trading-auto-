@@ -5,6 +5,7 @@
     { "path": "./packages/calendars" },
     { "path": "./packages/indicators" },
     { "path": "./packages/strategy-ichimoku" },
+    { "path": "./packages/risk" },
     { "path": "./packages/test-helpers" }
   ]
 }

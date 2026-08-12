@@ -79,6 +79,22 @@ importers:
         specifier: workspace:*
         version: link:../test-helpers
 
+  packages/risk:
+    dependencies:
+      '@js-temporal/polyfill':
+        specifier: 0.5.1
+        version: 0.5.1
+      '@trading-auto/domain':
+        specifier: workspace:*
+        version: link:../domain
+      decimal.js:
+        specifier: 10.6.0
+        version: 10.6.0
+    devDependencies:
+      '@trading-auto/test-helpers':
+        specifier: workspace:*
+        version: link:../test-helpers
+
   packages/strategy-ichimoku:
     dependencies:
       '@js-temporal/polyfill':

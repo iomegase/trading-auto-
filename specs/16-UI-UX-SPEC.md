@@ -3,7 +3,7 @@
 ## Dashboard
 
 - equity
-- capital attribué / plafond dur `1 000 EUR`
+- capital de sizing / `maxSizingCapital` de la politique active
 - drawdown
 - remaining/open risk en pourcentage et en montant
 - marge utilisée et exposition brute
@@ -99,7 +99,8 @@ L'UI affiche distinctement :
 
 - equity du compte broker
 - equity attribuée à la stratégie
-- capital effectif retenu pour le sizing
-- plafond de `1 000 EUR`
+- equity réalisée et P&L non réalisé
+- capital de sizing retenu selon ADR-011 : `asymmetricEquity = realizedEquity + min(0, unrealizedPnl)` ; `sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)`
+- `maxSizingCapital` et `riskPolicyVersion` actifs
 
-Un solde broker supérieur ne doit jamais laisser entendre que la stratégie peut dépasser son allocation.
+Un solde broker supérieur ou des gains latents ne doivent jamais laisser entendre que la stratégie peut augmenter son sizing sans nouvelle `RiskPolicyVersion` manuellement approuvée.

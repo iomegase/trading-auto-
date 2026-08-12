@@ -2,7 +2,7 @@
 
 Spécifications d'une plateforme de recherche, de backtest et de paper trading pour une stratégie Ichimoku H4/H1.
 
-La stratégie est conçue avec un capital de référence en EUR strictement plafonné à **1 000 €**. Ce plafond est une contrainte de sizing et de marge, pas une promesse de perte maximale en présence de gaps ou de produits à effet de levier.
+La baseline démarre avec `initialCapital = 1 000 EUR` et interdit toute injection de cash. Le capital de sizing est l'equity réalisée diminuée immédiatement des pertes latentes, sans inclure les gains latents, puis bornée par le `maxSizingCapital` de la `RiskPolicyVersion` active. Le plafond initial vaut `1 000 EUR`; toute augmentation est manuelle, auditée et versionnée. Ce cadre reste une contrainte de sizing et de marge, pas une promesse de perte maximale en présence de gaps ou de produits à effet de levier.
 
 - [Index des spécifications](specs/00-README.md)
 - [Configuration de recherche](specs/23-STRATEGY-CONFIG.example.json)
@@ -33,6 +33,8 @@ la compilation de tous les packages.
   avec provenance et Kijun décimal exact.
 - `@trading-auto/strategy-ichimoku` : pipeline causal H4/H1, breakout,
   qualification et stop Kijun exact arrondi au tick de l'instrument.
+- `@trading-auto/risk` : moteur de risque futures causal et décimal exact, avec
+  sizing asymétrique, coûts, FX, marge, exposition et raisons stables.
 - `@trading-auto/test-helpers` : construction de fixtures validées pour les
   tests.
 
@@ -68,11 +70,16 @@ local du fournisseur reste conservé séparément dans `sourceTimestamp`.
 
 ## Périmètre actuel
 
-Cette première milestone fournit uniquement un noyau de recherche déterministe
-et testé. Elle n'inclut encore ni calendriers de session (jours fériés, DST), ni
-resampling H1→H4, gestion du risque ou sizing, moteur de backtest, interface,
-persistance, paper trading, connexion broker ou exécution live.
+Le périmètre actuel réunit le noyau Ichimoku causal de Milestone 1 et le moteur
+de risque futures `RESEARCH_ONLY` de Milestone 2A. Ce dernier valide des contrats
+datés et dimensionne des ordres de recherche sous contraintes causales de coûts,
+FX, marge et exposition ; il ne place ni ne simule encore aucun ordre.
 
-Voir le [bilan de la milestone](docs/milestones/core-research.md), le
-[design approuvé](docs/superpowers/specs/2026-08-09-core-research-milestone-design.md)
-et le [plan de durcissement faisant autorité](docs/superpowers/plans/2026-08-09-core-research-hardening.md).
+Restent différés les calendriers de session complets (jours fériés, DST et
+pauses), le resampling H1→H4, le moteur d'exécution, le backtest séquentiel,
+l'interface, la persistance, le paper trading, la connexion broker et toute
+exécution live.
+
+Voir les bilans de [Milestone 1](docs/milestones/core-research.md) et de
+[Milestone 2A](docs/milestones/futures-risk.md), ainsi que le
+[design Futures Risk, Execution and Backtest](docs/superpowers/specs/2026-08-10-futures-risk-execution-backtest-design.md).

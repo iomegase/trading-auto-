@@ -14,6 +14,15 @@ Le backtest avance événement par événement.
 availableAt <= T
 ```
 
+Cette horloge de marché `decisionAt` est distincte de l'instant de contrôle de la
+politique. Un backtest fixe à sa création
+`riskPolicyUseMode = HISTORICAL_RESEARCH` et
+`riskPolicyUseAt = runCreatedAt`, puis conserve ces valeurs pour tout le run. Il
+exige `approvedAt <= activatedAt <= riskPolicyUseAt`, même lorsque les
+`decisionAt` simulés sont antérieurs. Un usage `FORWARD` exige au contraire
+`riskPolicyUseAt = decisionAt` et ne peut jamais appliquer une politique avant
+son activation.
+
 ## Capital et comptabilité
 
 Baseline :
@@ -21,11 +30,11 @@ Baseline :
 ```txt
 accountCurrency = EUR
 initialCash = 1 000 EUR
-hardCapitalCap = 1 000 EUR
+initialMaxSizingCapital = 1 000 EUR
 cashInjection = FORBIDDEN
 ```
 
-Le backtest utilise une comptabilité cash, marge, P&L réalisé/non réalisé et frais. Il ne redimensionne jamais les résultats obtenus avec un autre capital pour prétendre représenter un compte de `1 000 EUR`.
+La baseline démarre avec `initialCapital = 1 000 EUR` et interdit toute injection de cash. Le capital de sizing est l'equity réalisée diminuée immédiatement des pertes latentes, sans inclure les gains latents, puis bornée par le `maxSizingCapital` de la `RiskPolicyVersion` active. Le plafond initial vaut `1 000 EUR`; toute augmentation est manuelle, auditée et versionnée. Le backtest utilise une comptabilité cash, marge, P&L réalisé/non réalisé et frais. Il ne redimensionne jamais les résultats obtenus avec un autre capital pour prétendre représenter un compte de `1 000 EUR`.
 
 Un signal non exécutable à cause de `minQuantity`, de la marge, des coûts ou de l'exposition est enregistré comme rejet de risque ; il n'est ni omis silencieusement ni exécuté avec une quantité fractionnaire inventée.
 
@@ -111,7 +120,10 @@ Le sizing utilise une estimation causale des coûts ; le P&L utilise ensuite les
 - MFE
 - turnover
 - costs as % gross PnL
-- risk rejections by reason, notamment `MIN_QUANTITY`, `MARGIN`, `CAPITAL_CAP`, `COSTS`
+- risk rejections by reason, notamment `MIN_QUANTITY`, `MARGIN`,
+  `NO_SIZING_EQUITY`, `RISK_BUDGET`, `AVAILABLE_FUNDS`
+- risk reductions et rejections séparés pour
+  `MAX_CONTRACTS_PER_POSITION`
 - feasible signal rate après contraintes du compte de `1 000 EUR`
 
 ## Sharpe/Sortino
@@ -130,7 +142,8 @@ Un backtest doit stocker :
 - executionModelVersion
 - randomSeed si applicable
 - initialCapital et devise
-- hardCapitalCap
+- maxSizingCapital, riskPolicyVersion, riskPolicyUseMode et riskPolicyUseAt
+- runCreatedAt, égal à riskPolicyUseAt en `HISTORICAL_RESEARCH`
 - règles de marge/exposition
 
 ## Validation

@@ -7,7 +7,7 @@
 - test runner
 - CI
 - config validation
-- plafond serveur `1 000 EUR`
+- `RiskPolicyVersion` versionnée avec `initialMaxSizingCapital = 1 000 EUR`
 - types décimaux pour prix/quantités/montants
 
 ## Phase 1 — Domain + Calendars
@@ -46,7 +46,7 @@
 
 ## Phase 6 — Risk
 
-- capital effectif plafonné à `1 000 EUR`
+- capital de sizing asymétrique selon ADR-011, borné par le `maxSizingCapital` de la politique active : `asymmetricEquity = realizedEquity + min(0, unrealizedPnl)` ; `sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)`
 - sizing frais inclus
 - FX
 - quantité minimale/pas de quantité
@@ -61,7 +61,7 @@
 - intrabar policy
 - costs
 - metrics
-- comptabilité sur `1 000 EUR` sans injection implicite
+- comptabilité initialisée à `1 000 EUR` sans injection de cash ni augmentation automatique du plafond
 
 ## Phase 8 — Persistence + API
 

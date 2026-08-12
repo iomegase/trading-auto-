@@ -69,15 +69,33 @@ AUTO hors V1.
 
 `SEMI_AUTO` est également indisponible dans la livraison V1 de recherche.
 
-## ADR-011 — Capital de stratégie
+## ADR-011 — Capital initial et plafond de sizing
 
-```txt
-referenceCurrency = EUR
-hardCapitalCap = 1 000 EUR
-effectiveCapital = min(strategyEquity, convertedHardCap)
-```
+initialCapital = 1 000 EUR
+initialMaxSizingCapital = 1 000 EUR
+cashInjection = FORBIDDEN
 
-Le solde total du compte broker ne peut pas augmenter automatiquement ce capital effectif. Le backtest baseline démarre avec `1 000 EUR` et interdit toute injection de cash.
+asymmetricEquity =
+  realizedEquity + min(0, unrealizedPnl)
+
+sizingEquity =
+  min(max(0, asymmetricEquity), maxSizingCapital)
+
+Les gains latents n'augmentent jamais le sizing. Les pertes latentes le réduisent immédiatement. `maxSizingCapital` ne peut augmenter que par activation manuelle d'une nouvelle `RiskPolicyVersion`; le solde broker, une stratégie ou un backtest ne peuvent pas l'augmenter automatiquement.
+
+Le jalon 2A valide exactement `initialCapital = 1 000 EUR`; une nouvelle version
+conserve ce capital initial mais peut définir un `maxSizingCapital` strictement
+positif supérieur ou inférieur. Une `RiskPolicyVersion` est approuvée et immuable;
+les brouillons sont hors de son type et de sa table, et l'approbation crée la
+version persistée. La version résolue par identifiant est la seule autorité; toute
+valeur de capital ou de risque répétée par une API ou une configuration doit lui
+être exactement égale.
+
+L'utilisation porte `riskPolicyUseMode` et `riskPolicyUseAt`, avec
+`approvedAt <= activatedAt <= riskPolicyUseAt`. `FORWARD` impose
+`riskPolicyUseAt = decisionAt`; `HISTORICAL_RESEARCH` impose
+`riskPolicyUseAt = runCreatedAt`, immuable, même si les décisions de marché sont
+antérieures.
 
 ## ADR-012 — Risque frais inclus
 
@@ -89,9 +107,14 @@ Une quantité minimale qui dépasse ce budget est rejetée.
 
 Le champ canonique est `monetaryValuePerPriceUnit` dans la devise de P&L. `tickValue / tickSize` sert de contrôle de cohérence. Le multiplicateur de contrat n'est jamais appliqué une seconde fois.
 
-## ADR-014 — Exposition baseline
+## ADR-014 — Exposition et levier futures
 
-La configuration de recherche limite l'exposition brute à `100%` du capital effectif et l'utilisation de marge à `100%`. Toute utilisation de levier supérieure exige une nouvelle décision versionnée ; le respect de la marge ne remplace pas le budget de risque.
+Le notionnel brut reste mesuré indépendamment de la marge. Toute `RiskPolicyVersion` futures fournit explicitement `maxGrossExposurePct` et `maxMarginUsagePct`. Une politique absente ne reçoit aucune valeur par défaut et ne peut approuver aucun ordre futures. Respecter la marge ne remplace jamais les limites de risque au stop, coûts ou notionnel.
+
+Chaque produit exige aussi
+`riskGroupMaxExposurePct[product.riskGroup]`. L'allocation vaut exactement
+`sizingEquity * riskGroupMaxExposurePct[product.riskGroup] / 100`; une clé absente
+est une entrée gouvernée invalide, sans valeur par défaut.
 
 ## ADR-015 — Pyramiding
 

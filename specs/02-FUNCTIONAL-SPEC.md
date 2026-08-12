@@ -68,7 +68,7 @@ avec motif.
 
 Il doit aussi exposer :
 
-- capital effectif utilisé, toujours `<= 1 000 EUR` ou son équivalent converti
+- capital de sizing utilisé, calculé selon ADR-011 et borné par le `maxSizingCapital` de la `RiskPolicyVersion` active
 - budget de risque brut et net de coûts
 - quantité demandée et quantité approuvée
 - perte budgétée au stop, frais et slippage inclus
@@ -80,7 +80,7 @@ Une quantité minimale non compatible avec le budget est rejetée, jamais arrond
 
 Le moteur doit être causal, séquentiel et reproductible.
 
-Le backtest baseline démarre avec `1 000 EUR` et n'ajoute aucun capital implicitement.
+La baseline démarre avec `initialCapital = 1 000 EUR` et interdit toute injection de cash. Le capital de sizing est l'equity réalisée diminuée immédiatement des pertes latentes, sans inclure les gains latents, puis bornée par le `maxSizingCapital` de la `RiskPolicyVersion` active. Le plafond initial vaut `1 000 EUR`; toute augmentation est manuelle, auditée et versionnée.
 
 ## F-010 — Paper Execution
 

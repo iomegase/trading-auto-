@@ -13,7 +13,7 @@ Lis l'intégralité des specs avant de coder.
 5. tests avant UI
 6. stratégie et backtest partagent le même code
 7. aucune exécution live
-8. capital effectif strictement plafonné à `1 000 EUR`
+8. capital de sizing asymétrique selon ADR-011, borné par le `maxSizingCapital` de la politique active : `asymmetricEquity = realizedEquity + min(0, unrealizedPnl)` ; `sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)`
 9. sizing frais/slippage inclus et quantité minimale jamais forcée
 10. prix, quantités et montants exécutables en décimal exact
 
@@ -41,14 +41,17 @@ Le test doit échouer si le code compare le prix au projected Kumo au lieu du cu
 
 ## Deuxième milestone
 
-- Risk Engine plafonné à `1 000 EUR`
+- Risk Engine avec capital de sizing asymétrique et `RiskPolicyVersion`
 - contrôles quantité minimale, FX, coûts, marge et exposition
+- cost model
+- Risk Engine
+
+## Milestone ultérieur : backtest et exécution simulée
+
 - backtest sequential clock sur `1 000 EUR` sans injection de cash
 - NEXT_BAR_OPEN fills
 - gap rules
 - STOP_FIRST ambiguity policy
-- cost model
-- Risk Engine
 
 ## Interdictions
 

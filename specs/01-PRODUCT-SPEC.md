@@ -16,12 +16,12 @@ La V1 n'a pas pour objectif de maximiser le rendement ni d'optimiser automatique
 
 - devise de référence : `EUR`
 - capital initial des backtests baseline : `1 000 EUR`
-- plafond absolu alloué à la stratégie : `1 000 EUR`
+- `initialMaxSizingCapital` : `1 000 EUR`
 - aucune recharge automatique ou injection de cash pendant un backtest
 
-Le capital effectif utilisé pour le sizing est le minimum entre l'equity réellement attribuée à la stratégie et l'équivalent de `1 000 EUR`. Un solde broker supérieur ne doit jamais augmenter automatiquement la taille des positions de cette stratégie.
+La baseline démarre avec `initialCapital = 1 000 EUR` et interdit toute injection de cash. Le capital de sizing est l'equity réalisée diminuée immédiatement des pertes latentes, sans inclure les gains latents, puis bornée par le `maxSizingCapital` de la `RiskPolicyVersion` active. Le plafond initial vaut `1 000 EUR`; toute augmentation est manuelle, auditée et versionnée. Un solde broker supérieur ne doit jamais augmenter automatiquement la taille des positions de cette stratégie.
 
-Le plafond de `1 000 EUR` ne constitue pas une garantie de perte maximale. Les gaps, positions short, produits dérivés et incidents d'exécution peuvent produire une perte supérieure au risque calculé au stop. Tout instrument doit donc réussir un contrôle d'éligibilité portant au minimum sur la quantité minimale, la marge, le notionnel, les coûts et le risque de gap.
+Le plafond de sizing ne constitue pas une garantie de perte maximale. Les gaps, positions short, produits dérivés et incidents d'exécution peuvent produire une perte supérieure au risque calculé au stop. Tout instrument doit donc réussir un contrôle d'éligibilité portant au minimum sur la quantité minimale, la marge, le notionnel, les coûts et le risque de gap.
 
 ## Univers logique initial
 

@@ -40,9 +40,8 @@
 
 ## Risk
 
-- [ ] capital effectif toujours `<= 1 000 EUR`
+- [ ] capital de sizing calculé selon ADR-011 et borné par le `maxSizingCapital` actif : `asymmetricEquity = realizedEquity + min(0, unrealizedPnl)` ; `sizingEquity = min(max(0, asymmetricEquity), maxSizingCapital)`
 - [ ] budget à `0.50%` = `5 EUR` maximum sur la baseline, coûts inclus
-- [ ] aucune quantité minimale forcée au-dessus du budget
 - [ ] valeur monétaire par unité de prix correcte
 - [ ] aucune double application point value / contract multiplier
 - [ ] FX conversion
@@ -50,14 +49,25 @@
 - [ ] stale data guard
 - [ ] margin guard
 - [ ] portfolio/risk group limits
-- [ ] marge et exposition explicites pour tout produit à levier
+- [ ] clé de limite du risk group obligatoire et frontière exacte testée
+- [ ] `MAX_CONTRACTS_PER_POSITION` observable pour une quantité demandée au-dessus du plafond
 
 ## Capital / Backtest
 
-- [ ] capital initial baseline `1 000 EUR`
-- [ ] aucune injection de cash ou mise à l'échelle silencieuse
+- [ ] capital initial exactement `1 000 EUR`
+- [ ] aucune injection de cash
+- [ ] plafond initial de capital de sizing exactement `1 000 EUR`
+- [ ] les pertes latentes réduisent immédiatement le capital de sizing
+- [ ] les gains latents n'augmentent jamais le capital de sizing
+- [ ] toute hausse du plafond exige une nouvelle version de politique de risque approuvée manuellement
+- [ ] les limites d'exposition brute et de marge des futures sont toutes deux explicites
+- [ ] une quantité nulle n'est jamais arrondie à un contrat
 - [ ] rejets liés aux contraintes de taille comptabilisés
 - [ ] P&L et R-multiple nets de tous les coûts imputables
+- [ ] la `RiskPolicyVersion` résolue est l'unique autorité; toute dénormalisation divergente est rejetée
+- [ ] les quatre assertions de sécurité fixes 2A sont validées séparément des miroirs de politique
+- [ ] `approvedAt <= activatedAt <= riskPolicyUseAt` et invariants propres aux modes `FORWARD`/`HISTORICAL_RESEARCH` testés
+- [ ] toute décision `HISTORICAL_RESEARCH` référence un backtest et partage son `createdAt`; toute décision `FORWARD` exclut ce lien
 
 ## Execution
 
