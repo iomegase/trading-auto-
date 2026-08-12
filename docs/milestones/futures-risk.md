@@ -145,9 +145,8 @@ Au 12 août 2026, `pnpm check` et `pnpm test:coverage` exécutent chacun 21 fich
 de tests et 806 tests automatisés. Les contrôles locaux de formatage, ESLint,
 typage TypeScript strict, tests Vitest, compilation, couverture et inspection du
 boundary public compilé de `@trading-auto/risk` réussissent. L'audit réseau
-`pnpm audit --prod` n'a pas pu joindre le registre npm depuis l'environnement de
-vérification ; il reste donc obligatoire avant toute intégration de la branche
-et aucune absence de vulnérabilité connue n'est affirmée ici.
+`pnpm audit --prod` ne signale aucune vulnérabilité connue dans les dépendances
+de production au moment de cette vérification.
 
 ## Différé à 2B
 
