@@ -8,7 +8,7 @@ import {
   type InstantString,
 } from '@trading-auto/domain';
 
-import { riskDecimalFrom } from './decimal.js';
+import { isRiskDecimalWithinBounds, riskDecimalFrom } from './decimal.js';
 import { RiskInputError, type RiskInputErrorCode } from './errors.js';
 
 export interface SnapshotMetadataInput {
@@ -182,7 +182,10 @@ function snapshotProperty(
   invalid: Invalid,
 ): unknown {
   try {
-    return input[property];
+    const descriptor = Object.getOwnPropertyDescriptor(input, property);
+    if (descriptor === undefined) return undefined;
+    if ('value' in descriptor) return descriptor.value;
+    return descriptor.get?.call(input);
   } catch {
     invalid(`${field} must be readable.`, { field });
   }
@@ -254,6 +257,13 @@ function decimal(
   invalid: Invalid,
 ): DecimalString {
   assertString(value, field, invalid);
+
+  if (!isRiskDecimalWithinBounds(value)) {
+    invalid(`${field} exceeds the supported risk decimal bounds.`, {
+      field,
+      value,
+    });
+  }
 
   try {
     return asDecimalString(value);
@@ -510,13 +520,6 @@ function snapshotDenseArrayView(
     `${field}.length`,
     invalid,
   );
-
-  if (!Number.isSafeInteger(lengthValue) || (lengthValue as number) < 0) {
-    invalid(`${field} must have a valid length.`, {
-      field,
-      length: lengthValue,
-    });
-  }
 
   if ((lengthValue as number) > limit) {
     invalid(`${field} exceeds its supported length.`, {

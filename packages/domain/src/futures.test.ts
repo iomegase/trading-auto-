@@ -265,6 +265,18 @@ describe('createFuturesProduct', () => {
     );
   });
 
+  it('checks maximum-length quantity divisibility with exact integer arithmetic', () => {
+    const quantityStep = '9'.repeat(256);
+
+    expect(
+      createFuturesProduct({
+        ...validProductInput,
+        quantityStep,
+        minQuantity: quantityStep,
+      }),
+    ).toMatchObject({ quantityStep, minQuantity: quantityStep });
+  });
+
   it('requires tick economics to be coherent', () => {
     expectDomainValidationError(
       () => createFuturesProduct({ ...validProductInput, tickValue: '1' }),

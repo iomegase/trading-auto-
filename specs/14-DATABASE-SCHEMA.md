@@ -168,6 +168,7 @@ Unique :
 - evaluated_at
 - decision
 - requested_risk_account_ccy
+- requested_quantity (nullable)
 - sizing_equity_account_ccy
 - risk_budget_account_ccy
 - budgeted_costs_account_ccy
@@ -311,7 +312,7 @@ conversion FX du plafond de capital.
 
 - montants, prix et quantités : `NUMERIC`, jamais `REAL`/`DOUBLE PRECISION`
 - timestamps métier : `TIMESTAMPTZ`
-- `initial_capital_account_ccy = 1000.00` pour la baseline
+- `initial_capital_account_ccy = 1000` pour la baseline
 - les clés `risk_policy_version_id` référencent une version `APPROVED` et
   immuable; aucun brouillon n'est persisté dans `risk_policy_versions`
 - tout usage vérifie
@@ -333,3 +334,8 @@ Le mapping TypeScript/SQL est explicite : `initialCapital` et
 `initialCapitalAccountCcy` correspondent à `initial_capital_account_ccy`, tandis
 que `maxSizingCapital` et `maxSizingCapitalAccountCcy` correspondent à
 `max_sizing_capital_account_ccy`.
+
+À la lecture, tout `NUMERIC` est normalisé avant validation en `DecimalString` :
+les zéros fractionnaires finaux sont supprimés sans modifier la valeur. Ainsi,
+une valeur SQL équivalente à `1000.00` devient la forme canonique `"1000"` ; une
+valeur mal formée ou numériquement différente reste rejetée.

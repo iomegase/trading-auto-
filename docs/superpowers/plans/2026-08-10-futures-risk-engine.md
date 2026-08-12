@@ -245,7 +245,7 @@ Add the complete baseline mirror:
 
 ```json
 "riskGroupMaxExposurePct": {
-  "EUROPE_EQUITY_INDEX": 100.0,
+  "EU_EQUITY_INDEX": 100.0,
   "US_EQUITY_INDEX": 100.0
 }
 ```
@@ -518,7 +518,7 @@ const product = createFuturesProduct({
   monetaryValuePerPriceUnit: '1',
   quantityStep: '1',
   minQuantity: '1',
-  riskGroup: 'EUROPE_EQUITY_INDEX',
+  riskGroup: 'EU_EQUITY_INDEX',
 });
 ```
 
@@ -854,7 +854,7 @@ const policyInput = {
   dailyLossLimitPct: '2',
   maxDrawdownPct: '10',
   riskGroupMaxExposurePct: {
-    EUROPE_EQUITY_INDEX: '100',
+    EU_EQUITY_INDEX: '100',
     US_EQUITY_INDEX: '100',
   },
   allowCashInjection: false,

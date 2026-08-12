@@ -6,7 +6,10 @@ import { asDecimalString, type DecimalString } from '@trading-auto/domain';
 export const MAX_RISK_DECIMAL_TOTAL_DIGITS = 256;
 export const MAX_RISK_DECIMAL_FRACTION_DIGITS = 128;
 const RiskDecimal = Decimal.clone({
+  defaults: true,
   precision: 1024,
+  rounding: Decimal.ROUND_HALF_UP,
+  modulo: Decimal.ROUND_DOWN,
   maxE: 9e15,
   minE: -9e15,
   toExpNeg: -9e15,

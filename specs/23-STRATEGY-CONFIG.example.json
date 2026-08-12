@@ -71,7 +71,7 @@
     "maxGrossExposurePct": 100.0,
     "maxMarginUsagePct": 100.0,
     "riskGroupMaxExposurePct": {
-      "EUROPE_EQUITY_INDEX": 100.0,
+      "EU_EQUITY_INDEX": 100.0,
       "US_EQUITY_INDEX": 100.0
     },
     "includeEstimatedExitCosts": true,

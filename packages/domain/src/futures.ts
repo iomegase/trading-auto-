@@ -337,7 +337,9 @@ export function createFuturesProduct(
     'minQuantity',
   );
 
-  if (!decimalFrom(minQuantity).mod(decimalFrom(quantityStep)).isZero()) {
+  const minimumInteger = scaledInteger(minQuantity);
+  const stepInteger = scaledInteger(quantityStep);
+  if (minimumInteger.coefficient % stepInteger.coefficient !== 0n) {
     invalidProduct('minQuantity must be divisible by quantityStep.', {
       quantityStep,
       minQuantity,

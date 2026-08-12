@@ -1151,7 +1151,7 @@ describe('calculateCandidateEconomics', () => {
     const reads = new Map<string, number>();
     const once = <T extends object>(label: string, value: T): T =>
       new Proxy(value, {
-        get: (target, property, receiver): unknown => {
+        getOwnPropertyDescriptor: (target, property) => {
           if (typeof property === 'string') {
             const key = `${label}.${property}`;
             const count = (reads.get(key) ?? 0) + 1;
@@ -1160,7 +1160,7 @@ describe('calculateCandidateEconomics', () => {
               throw new Error(`read twice: ${key}`);
             }
           }
-          return Reflect.get(target, property, receiver);
+          return Reflect.getOwnPropertyDescriptor(target, property);
         },
       });
 
@@ -1176,6 +1176,7 @@ describe('calculateCandidateEconomics', () => {
       directionalLossAccount: '4',
       grossExposureAccount: '200',
     });
+    expect(reads.size).toBeGreaterThan(0);
     expect(original).toEqual(baseCandidateInput());
   });
 });

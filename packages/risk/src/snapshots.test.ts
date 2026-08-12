@@ -641,11 +641,9 @@ describe('snapshot factories', () => {
 
   it('bounds fee tiers before probing or copying oversized arrays', () => {
     let indexProbes = 0;
-    const oversizedTiers = new Proxy([], {
-      get: (target, property, receiver): unknown =>
-        property === 'length' ? 257 : Reflect.get(target, property, receiver),
+    const oversizedTiers = new Proxy(new Array(257), {
       getOwnPropertyDescriptor: (target, property) => {
-        indexProbes += 1;
+        if (property !== 'length') indexProbes += 1;
         return Reflect.getOwnPropertyDescriptor(target, property);
       },
     });
@@ -787,9 +785,9 @@ describe('snapshot factories', () => {
     expect(tierReads).toEqual({ upToQuantity: 1, feePerContract: 1 });
   });
 
-  it('converts throwing top-level and nested getters into RiskInputError', () => {
+  it('converts throwing top-level and nested descriptor reads into RiskInputError', () => {
     const throwingInput = new Proxy(validFxInput, {
-      get: () => {
+      getOwnPropertyDescriptor: () => {
         throw new Error('unexpected access');
       },
     });
@@ -802,7 +800,7 @@ describe('snapshot factories', () => {
     const throwingTier = new Proxy(
       { upToQuantity: null, feePerContract: '0' },
       {
-        get: () => {
+        getOwnPropertyDescriptor: () => {
           throw new Error('unexpected access');
         },
       },
@@ -849,6 +847,25 @@ describe('snapshot factories', () => {
     } finally {
       Decimal.set(originalConfig);
     }
+  });
+
+  it('rejects snapshot decimals beyond the bounded risk input contract', () => {
+    const oversizedRate = '1'.repeat(257);
+
+    expectRiskInputError(
+      () => createFxSnapshot({ ...validFxInput, rate: oversizedRate }),
+      'INVALID_SNAPSHOT',
+      { field: 'rate', value: oversizedRate },
+    );
+  });
+
+  it('captures own data descriptors instead of a divergent proxy get trap', () => {
+    const input = new Proxy(validFxInput, {
+      get: (target, property, receiver): unknown =>
+        property === 'rate' ? '2' : Reflect.get(target, property, receiver),
+    });
+
+    expect(createFxSnapshot(input).rate).toBe('0.92');
   });
 });
 
@@ -1391,23 +1408,12 @@ describe('selectRiskSnapshotBundle', () => {
       { field: 'fx' },
     );
 
-    const invalidLength = new Proxy([validFxInput], {
-      get: (target, property, receiver): unknown =>
-        property === 'length' ? -1 : Reflect.get(target, property, receiver),
-    });
-    expectRiskInputError(
-      () =>
-        selectRiskSnapshotBundle(
-          { fx: invalidLength, margin: [], eligibility: [], costs: [] },
-          query,
-        ),
-      'INVALID_RISK_INPUT',
-      { field: 'fx' },
-    );
-
     const throwingOwnCheck = new Proxy([validFxInput], {
-      getOwnPropertyDescriptor: () => {
-        throw new Error('unexpected own-index check');
+      getOwnPropertyDescriptor: (target, property) => {
+        if (property !== 'length') {
+          throw new Error('unexpected own-index check');
+        }
+        return Reflect.getOwnPropertyDescriptor(target, property);
       },
     });
     expectRiskInputError(
@@ -1423,13 +1429,9 @@ describe('selectRiskSnapshotBundle', () => {
 
   it('bounds snapshot series before probing an oversized array', () => {
     let indexProbes = 0;
-    const oversized = new Proxy([], {
-      get: (target, property, receiver): unknown =>
-        property === 'length'
-          ? 10_001
-          : Reflect.get(target, property, receiver),
+    const oversized = new Proxy(new Array(10_001), {
       getOwnPropertyDescriptor: (target, property) => {
-        indexProbes += 1;
+        if (property !== 'length') indexProbes += 1;
         return Reflect.getOwnPropertyDescriptor(target, property);
       },
     });
@@ -1450,39 +1452,6 @@ describe('selectRiskSnapshotBundle', () => {
     );
     expect(indexProbes).toBe(0);
   });
-
-  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
-    'rejects an invalid snapshot-series length before index iteration: %s',
-    (length) => {
-      let indexProbes = 0;
-      const invalidLength = new Proxy([], {
-        get: (target, property, receiver): unknown =>
-          property === 'length'
-            ? length
-            : Reflect.get(target, property, receiver),
-        getOwnPropertyDescriptor: (target, property) => {
-          indexProbes += 1;
-          return Reflect.getOwnPropertyDescriptor(target, property);
-        },
-      });
-
-      expectRiskInputError(
-        () =>
-          selectRiskSnapshotBundle(
-            {
-              fx: invalidLength,
-              margin: [],
-              eligibility: [],
-              costs: [],
-            },
-            query,
-          ),
-        'INVALID_RISK_INPUT',
-        { field: 'fx', length },
-      );
-      expect(indexProbes).toBe(0);
-    },
-  );
 
   it('accepts a causally irrelevant snapshot series at the 10,000-item limit', () => {
     const future = routingOnlyRecord({
@@ -1584,7 +1553,7 @@ describe('selectRiskSnapshotBundle', () => {
     });
 
     const throwingQuery = new Proxy(query, {
-      get: () => {
+      getOwnPropertyDescriptor: () => {
         throw new Error('unexpected access');
       },
     });

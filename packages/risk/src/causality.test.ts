@@ -95,9 +95,12 @@ function costs(
   };
 }
 
-function select(series: RiskSnapshotSeriesInput) {
+function select(
+  series: RiskSnapshotSeriesInput,
+  decisionAt: string = DECISION_AT,
+) {
   return selectRiskSnapshotBundle(series, {
-    decisionAt: DECISION_AT,
+    decisionAt,
     contractId: syntheticMesContract.contractId,
     pnlCurrency: syntheticMesProduct.pnlCurrency,
     accountCurrency: 'EUR',
@@ -172,6 +175,7 @@ describe('Milestone 2A snapshot causality', () => {
     const afterBundle = select(appendedSeries);
     const before = evaluate(beforeBundle);
     const after = evaluate(afterBundle);
+    const laterBundle = select(appendedSeries, futureObservedAt);
 
     for (const bundle of [beforeBundle, afterBundle]) {
       expect(bundle).toMatchObject({
@@ -223,6 +227,12 @@ describe('Milestone 2A snapshot causality', () => {
       },
     });
     expect(after).toEqual(before);
+    expect(laterBundle).toMatchObject({
+      fx: { version: 'FX_1000' },
+      margin: { version: 'MARGIN_1000' },
+      eligibility: { version: 'ELIGIBILITY_1000' },
+      costs: { version: 'COSTS_1000' },
+    });
     expect(baseSeries).toEqual(baseBefore);
     expect(appendedSeries).toEqual(appendedBefore);
     expect({

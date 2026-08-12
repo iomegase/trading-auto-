@@ -1114,17 +1114,19 @@ function staticReasons(
     reasons.add('MAX_CONTRACTS_PER_POSITION');
   }
   const equity = riskDecimalFrom(sizingEquity);
+  const dailyLoss = riskDecimalFrom(input.account.dailyLoss);
   if (
-    riskDecimalFrom(input.account.dailyLoss).gte(
+    dailyLoss.gt(0) &&
+    dailyLoss.gte(
       equity.times(riskDecimalFrom(input.policy.dailyLossLimitPct)).div(100),
     )
   ) {
     reasons.add('DAILY_LOSS_LIMIT');
   }
+  const drawdownPct = riskDecimalFrom(input.account.drawdownPct);
   if (
-    riskDecimalFrom(input.account.drawdownPct).gte(
-      riskDecimalFrom(input.policy.maxDrawdownPct),
-    )
+    drawdownPct.gt(0) &&
+    drawdownPct.gte(riskDecimalFrom(input.policy.maxDrawdownPct))
   ) {
     reasons.add('DRAWDOWN_LIMIT');
   }
@@ -1377,7 +1379,7 @@ export function evaluateOrderRisk(input: OrderRiskInput): RiskDecision {
 
   for (let index = 0; index < count; index += 1) {
     const quantityValue = minimum.plus(step.times(index));
-    if (quantityValue.gt(upper)) continue;
+    if (quantityValue.gt(upper)) break;
     const quantity = riskDecimalToString(quantityValue);
     const evaluated =
       index === 0

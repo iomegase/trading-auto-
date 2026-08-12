@@ -43,8 +43,8 @@ Crée un job immuable.
   "capital": {
     "referenceCurrency": "EUR",
     "accountCurrency": "EUR",
-    "initialCapital": 1000,
-    "initialMaxSizingCapital": 1000,
+    "initialCapital": "1000",
+    "initialMaxSizingCapital": "1000",
     "allowCashInjection": false,
     "sizingEquityMode": "REALIZED_PLUS_UNREALIZED_LOSSES",
     "capIncreaseMode": "MANUAL_VERSIONED"

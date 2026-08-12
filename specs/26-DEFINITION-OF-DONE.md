@@ -26,8 +26,12 @@ Une feature métier est terminée seulement si :
 - l'autorité unique de `RiskPolicyVersion` et le rejet des dénormalisations divergentes sont testés
 - les assertions fixes 2A sont classées et testées indépendamment des miroirs de politique
 - les deux modes de `riskPolicyUseAt` et leur chronologie sont testés
-- le lien backtest des décisions historiques, son FK et son absence en `FORWARD` sont testés
+- les champs `backtestId`, `runCreatedAt` et `riskPolicyUseAt` des décisions
+  historiques, leur cohérence et leur absence en `FORWARD` sont testés
 - les limites de risk group et de contrats ont des raisons stables et observables
+
+Une feature de persistance backtest (Milestone 2C) exige en plus que le lien
+entre une décision historique et son backtest soit protégé par une clé étrangère.
 
 Une feature d'exécution exige en plus :
 

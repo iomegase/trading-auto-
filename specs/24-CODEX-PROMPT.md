@@ -43,12 +43,15 @@ Le test doit échouer si le code compare le prix au projected Kumo au lieu du cu
 
 - Risk Engine avec capital de sizing asymétrique et `RiskPolicyVersion`
 - contrôles quantité minimale, FX, coûts, marge et exposition
+- cost model
+- Risk Engine
+
+## Milestone ultérieur : backtest et exécution simulée
+
 - backtest sequential clock sur `1 000 EUR` sans injection de cash
 - NEXT_BAR_OPEN fills
 - gap rules
 - STOP_FIRST ambiguity policy
-- cost model
-- Risk Engine
 
 ## Interdictions
 

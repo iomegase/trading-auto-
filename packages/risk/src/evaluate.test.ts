@@ -400,6 +400,13 @@ describe('evaluateOrderRisk result contracts', () => {
       quantity: '1',
       reasons: ['RISK_BUDGET'],
     });
+    if (decision.status !== 'REDUCE_SIZE') {
+      throw new Error('Expected a REDUCE_SIZE decision.');
+    }
+    expect(decision.reasons.length).toBeGreaterThan(0);
+    expect(Number(decision.quantity)).toBeLessThan(
+      Number(decision.requestedQuantity),
+    );
   });
 
   it('rejects without rounding up when the minimum is not feasible', () => {
@@ -520,6 +527,21 @@ describe('stable business reason coverage and ordering', () => {
       'OPEN_RISK',
     ]);
     expect(new Set(decision.reasons).size).toBe(decision.reasons.length);
+  });
+
+  it('does not report loss-limit breaches when observed losses are zero', () => {
+    const decision = evaluateOrderRisk(
+      buildOrderRiskInput({
+        account: buildAccount({ dailyLoss: '0', drawdownPct: '0' }),
+        policy: buildPolicy({
+          dailyLossLimitPct: '0',
+          maxDrawdownPct: '0',
+        }),
+      }),
+    );
+
+    expect(decision.reasons).not.toContain('DAILY_LOSS_LIMIT');
+    expect(decision.reasons).not.toContain('DRAWDOWN_LIMIT');
   });
 
   it('reports minimum economics and constraints for a blocking static guard', () => {
