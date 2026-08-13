@@ -53,3 +53,15 @@ export {
   type DailySettlementInput,
   type SelectDailySettlementInput,
 } from './settlement.js';
+export {
+  createRollSchedule,
+  executeContractRollover,
+  type ContractRolloverResult,
+  type ExecuteContractRolloverInput,
+  type RollSchedule,
+  type RollScheduleEntry,
+  type RollScheduleEntryInput,
+  type RollScheduleInput,
+  type RolloverExit,
+  type RolloverReentryInput,
+} from './rollover.js';
