@@ -31,12 +31,12 @@
 
 ## Backtest
 
-- [ ] signal on close ≠ fill rétroactif same close
-- [ ] gap handling défini
-- [ ] intrabar conflict policy définie
-- [ ] frais/spread/slippage inclus
+- [x] signal on close ≠ fill rétroactif same close dans le simulateur 2B
+- [x] gap handling défini dans le simulateur 2B
+- [x] intrabar conflict policy `STOP_FIRST` définie dans le simulateur 2B
+- [x] frais/spread dans la revalidation du risque et slippage dans les fills 2B
 - [ ] Sharpe basé sur portfolio returns
-- [ ] reproductibilité totale
+- [ ] reproductibilité du run complet 2C
 
 ## Risk
 
@@ -71,9 +71,17 @@
 
 ## Execution
 
-- [ ] idempotence
-- [ ] partial fills
-- [ ] UNKNOWN/reconciliation
+- [x] modèle d'exécution et schedules versionnés
+- [x] prochain open négociable, maintenance et fenêtres de contrat causales
+- [x] revalidation complète du risque avant fill
+- [x] stop fixe, gap-through, `STOP_FIRST` et sortie de tendance différée
+- [x] settlement officiel causal et variation margin
+- [x] roll explicite sans transfert synthétique de prix, P&L ou coûts
+- [x] rejet des symboles continus aux frontières exécutables
+- [x] invariance aux données futures et résultats immuables
+- [ ] idempotence broker
+- [ ] partial fills broker
+- [ ] UNKNOWN/reconciliation broker
 - [ ] paper operational
 - [ ] stop protecteur confirmé ou incident explicite
 - [ ] `SEMI_AUTO` indisponible en V1

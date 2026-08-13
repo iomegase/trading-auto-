@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 
-Status: Milestone 2A implemented; Milestones 2B and 2C remain planned
+Status: Milestones 2A and 2B implemented; Milestone 2C remains planned
 
 Delivery: three sequential milestones and three independent pull requests
 

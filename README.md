@@ -35,6 +35,9 @@ la compilation de tous les packages.
   qualification et stop Kijun exact arrondi au tick de l'instrument.
 - `@trading-auto/risk` : moteur de risque futures causal et décimal exact, avec
   sizing asymétrique, coûts, FX, marge, exposition et raisons stables.
+- `@trading-auto/execution` : simulateur causal d'exécution futures sur barres
+  H1, avec sessions versionnées, revalidation du risque à l'ouverture, stops,
+  settlements et roll explicite entre contrats datés.
 - `@trading-auto/test-helpers` : construction de fixtures validées pour les
   tests.
 
@@ -70,16 +73,22 @@ local du fournisseur reste conservé séparément dans `sourceTimestamp`.
 
 ## Périmètre actuel
 
-Le périmètre actuel réunit le noyau Ichimoku causal de Milestone 1 et le moteur
-de risque futures `RESEARCH_ONLY` de Milestone 2A. Ce dernier valide des contrats
-datés et dimensionne des ordres de recherche sous contraintes causales de coûts,
-FX, marge et exposition ; il ne place ni ne simule encore aucun ordre.
+Le périmètre actuel réunit le noyau Ichimoku causal de Milestone 1, le moteur de
+risque futures de Milestone 2A et le simulateur d'exécution sur barres H1 de
+Milestone 2B. Le simulateur consomme des contrats datés et des horaires fournis,
+revalide le risque au prochain open disponible, puis modélise de façon
+conservatrice les stops, les sorties de tendance différées, settlements et
+rollovers. Tout ce périmètre reste
+`RESEARCH_ONLY` et ne place aucun ordre réel.
 
-Restent différés les calendriers de session complets (jours fériés, DST et
-pauses), le resampling H1→H4, le moteur d'exécution, le backtest séquentiel,
-l'interface, la persistance, le paper trading, la connexion broker et toute
-exécution live.
+Restent différés l'acquisition de calendriers et données broker réels, le
+resampling H1→H4, l'horloge de portefeuille et le backtest séquentiel de
+Milestone 2C, les statistiques, l'interface, la persistance, le paper trading,
+la connexion broker et toute exécution live. L'absence de données minute, tick,
+carnet d'ordres et fills partiels interdit d'interpréter les fills simulés comme
+une preuve de qualité d'exécution réelle.
 
 Voir les bilans de [Milestone 1](docs/milestones/core-research.md) et de
-[Milestone 2A](docs/milestones/futures-risk.md), ainsi que le
+[Milestone 2A](docs/milestones/futures-risk.md), de
+[Milestone 2B](docs/milestones/futures-execution.md), ainsi que le
 [design Futures Risk, Execution and Backtest](docs/superpowers/specs/2026-08-10-futures-risk-execution-backtest-design.md).
