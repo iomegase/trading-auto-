@@ -87,6 +87,11 @@ export type EntryExecutionResult =
       riskDecision: RiskDecision | null;
     }>;
 
+export type FilledEntryExecution = Extract<
+  EntryExecutionResult,
+  { readonly type: 'ENTRY_FILLED' | 'ENTRY_REDUCED_AND_FILLED' }
+>;
+
 const intentFields = Object.freeze([
   'intentId',
   'instrumentId',

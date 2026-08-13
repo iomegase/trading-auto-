@@ -309,7 +309,11 @@ When a stop and a close-known trend exit are both possible in the same H1 bar, r
 
 - [ ] **Step 5: Add close-known trend-exit intent tests**
 
-LONG `close < signal-time Kijun reference` and SHORT inverse create an immutable `TREND_EXIT_INTENT` at candle close. It fills only at a later tradable open using `NEXT_TRADABLE_PRICE`.
+LONG `close < current closed-bar Kijun` and SHORT inverse create an immutable
+`TREND_EXIT_INTENT` at candle close. The current Kijun must be computed and
+available no earlier than that close; it never replaces or moves the protective
+stop, which remains the fixed signal-time Kijun. The intent fills only at a later
+tradable open using `NEXT_TRADABLE_PRICE`.
 
 - [ ] **Step 6: Run full position GREEN and commit**
 

@@ -30,4 +30,15 @@ export {
   type EntryIntent,
   type EntryIntentInput,
   type ExecuteEntryAtNextOpenInput,
+  type FilledEntryExecution,
 } from './entry.js';
+export {
+  createOpenPosition,
+  processPositionH1Bar,
+  type CurrentKijunInput,
+  type ExecutionLimitation,
+  type OpenPosition,
+  type OpenPositionInput,
+  type PositionH1BarResult,
+  type ProcessPositionH1BarInput,
+} from './position.js';
