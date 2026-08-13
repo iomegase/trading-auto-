@@ -21,3 +21,13 @@ export {
   type ExecutionScheduleInput,
   type SelectNextTradableH1OpenInput,
 } from './schedule.js';
+export {
+  createEntryIntent,
+  executeEntryAtNextOpen,
+  type ApprovedRiskDecisionStatus,
+  type EntryDirection,
+  type EntryExecutionResult,
+  type EntryIntent,
+  type EntryIntentInput,
+  type ExecuteEntryAtNextOpenInput,
+} from './entry.js';

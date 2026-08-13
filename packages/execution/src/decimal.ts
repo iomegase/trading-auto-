@@ -26,10 +26,7 @@ function invalid(field: string, value: unknown): never {
   );
 }
 
-export function positiveExecutionDecimal(
-  value: unknown,
-  field: string,
-): DecimalString {
+function boundedCanonicalDecimal(value: unknown, field: string): DecimalString {
   if (typeof value !== 'string' || !CANONICAL_DECIMAL.test(value)) {
     invalid(field, value);
   }
@@ -43,17 +40,41 @@ export function positiveExecutionDecimal(
     invalid(field, value);
   }
 
-  let decimal: Decimal;
-  try {
-    decimal = new ExecutionDecimal(value);
-  } catch {
-    invalid(field, value);
-  }
-  if (!decimal.isFinite() || !decimal.gt(0)) invalid(field, value);
-
   try {
     return asDecimalString(value);
   } catch {
     invalid(field, value);
   }
+}
+
+export function positiveExecutionDecimal(
+  value: unknown,
+  field: string,
+): DecimalString {
+  const canonical = boundedCanonicalDecimal(value, field);
+
+  let decimal: Decimal;
+  try {
+    decimal = new ExecutionDecimal(canonical);
+  } catch {
+    invalid(field, value);
+  }
+  if (!decimal.isFinite() || !decimal.gt(0)) invalid(field, value);
+
+  return canonical;
+}
+
+export function nonnegativeExecutionDecimal(
+  value: unknown,
+  field: string,
+): DecimalString {
+  const canonical = boundedCanonicalDecimal(value, field);
+  let decimal: Decimal;
+  try {
+    decimal = new ExecutionDecimal(canonical);
+  } catch {
+    invalid(field, value);
+  }
+  if (!decimal.isFinite() || decimal.isNegative()) invalid(field, value);
+  return canonical;
 }
