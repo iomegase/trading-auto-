@@ -360,6 +360,24 @@ describe('causal next-tradable-open selection', () => {
     expect(selected?.openTime).toBe('2026-01-02T13:00:00Z');
   });
 
+  it('rejects duplicate eligible opens instead of depending on array order', () => {
+    expectExecutionError(
+      () =>
+        selectNextTradableH1Open({
+          signalCloseTime: '2026-01-02T08:00:00Z',
+          decisionAt: '2026-01-02T09:00:00Z',
+          contract: syntheticFdxsContract,
+          schedule: schedule(),
+          openEvents: [
+            openEvent('2026-01-02T09:00:00Z', { price: '15000' }),
+            openEvent('2026-01-02T09:00:00Z', { price: '15000.5' }),
+          ],
+        }),
+      'INVALID_DATA',
+      'openEvents',
+    );
+  });
+
   it('uses half-open session and contract boundaries', () => {
     const sessionEnd = selectNextTradableH1Open({
       signalCloseTime: '2026-01-02T11:00:00Z',
@@ -493,8 +511,34 @@ describe('causal next-tradable-open selection', () => {
           contract: syntheticFdxsContract,
           schedule: schedule(),
           openEvents: [
-            openEvent('2026-01-02T09:00:00Z', { contractId: 'FDXS' }),
+            {
+              ...openEvent('2026-01-02T09:00:00Z'),
+              contractId: 'FDXS',
+            },
           ],
+        }),
+      'INVALID_DATA',
+      'contractId',
+    );
+  });
+
+  it('rejects a forged continuous contract even without market events', () => {
+    const continuousContract = {
+      ...syntheticFdxsContract,
+      contractId: syntheticFdxsContract.productCode,
+    };
+
+    expectExecutionError(
+      () =>
+        selectNextTradableH1Open({
+          signalCloseTime: '2026-01-02T08:00:00Z',
+          decisionAt: '2026-01-02T09:00:00Z',
+          contract: continuousContract,
+          schedule: createExecutionSchedule({
+            ...validSchedule,
+            contractId: continuousContract.contractId,
+          }),
+          openEvents: [],
         }),
       'INVALID_DATA',
       'contractId',

@@ -117,6 +117,7 @@ export function createH1OpenEvent(input: H1OpenEventInput): H1OpenEvent {
     ownValue(input, 'contractId'),
     'contractId',
   );
+  if (contractId === instrumentId) invalid('contractId', contractId);
   const openTime = instant(ownValue(input, 'openTime'), 'openTime');
   const availableAt = instant(ownValue(input, 'availableAt'), 'availableAt');
   const price = positiveExecutionDecimal(ownValue(input, 'price'), 'price');
@@ -144,6 +145,7 @@ export function createH1ClosedBarEvent(
     ownValue(input, 'contractId'),
     'contractId',
   );
+  if (contractId === instrumentId) invalid('contractId', contractId);
   const openTime = instant(ownValue(input, 'openTime'), 'openTime');
   const closeTime = instant(ownValue(input, 'closeTime'), 'closeTime');
   const availableAt = instant(ownValue(input, 'availableAt'), 'availableAt');

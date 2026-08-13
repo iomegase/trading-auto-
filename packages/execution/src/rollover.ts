@@ -26,9 +26,13 @@ import {
 import { ExecutionInputError } from './errors.js';
 import {
   createOpenPosition,
-  type ExecutionLimitation,
+  snapshotOpenPosition,
   type OpenPosition,
 } from './position.js';
+import {
+  executionLimitations,
+  type ExecutionLimitation,
+} from './limitations.js';
 
 const MAX_ROLL_ENTRIES = 256;
 const MAX_CONTRACTS = 256;
@@ -103,6 +107,7 @@ export interface RolloverExit {
   readonly exitCostsAccountCurrency: DecimalString;
   readonly netTradePnlAccountCurrency: DecimalString;
   readonly accountingCashChangeAccountCurrency: DecimalString;
+  readonly limitations: readonly ExecutionLimitation[];
 }
 
 export type ContractRolloverResult =
@@ -114,6 +119,7 @@ export type ContractRolloverResult =
         { readonly type: 'ENTRY_CANCELLED' }
       >;
       position: Readonly<OpenPosition>;
+      limitations: readonly ExecutionLimitation[];
     }>
   | Readonly<{
       type: 'ROLLOVER_EXITED_FLAT';
@@ -125,6 +131,7 @@ export type ContractRolloverResult =
       position: null;
       reasons:
         readonly RiskDecisionReason[] | readonly ['INVALID_STOP_AT_OPEN'];
+      limitations: readonly ExecutionLimitation[];
     }>;
 
 const entryInputFields = Object.freeze([
@@ -145,30 +152,6 @@ const contractFields = Object.freeze([
   'productCode',
   'firstTradeAt',
   'lastTradeAt',
-] as const);
-
-const positionFields = Object.freeze([
-  'positionId',
-  'intentId',
-  'riskDecisionId',
-  'instrumentId',
-  'contractId',
-  'strategyVersion',
-  'datasetVersion',
-  'riskPolicyVersion',
-  'timeframe',
-  'direction',
-  'quantity',
-  'economicEntryPrice',
-  'accountingBasisPrice',
-  'protectiveStopPrice',
-  'entryCostAccountCurrency',
-  'tickSize',
-  'signalCloseTime',
-  'openedAt',
-  'executionModelVersion',
-  'exitPolicyVersion',
-  'limitations',
 ] as const);
 
 const reentryFields = Object.freeze([
@@ -345,6 +328,9 @@ function contractWindows(value: unknown): ReadonlyMap<string, ContractWindow> {
       firstTradeAt: instant(raw.firstTradeAt, 'contracts', scheduleError),
       lastTradeAt: instant(raw.lastTradeAt, 'contracts', scheduleError),
     });
+    if (window.contractId === window.productCode) {
+      scheduleError('contracts', contractId);
+    }
     if (compare(window.firstTradeAt, window.lastTradeAt) >= 0) {
       scheduleError('contracts', contractId);
     }
@@ -455,63 +441,6 @@ export function createRollSchedule(
   });
 }
 
-function limitations(value: unknown): readonly ExecutionLimitation[] {
-  const items = denseArray(value, 'limitations', 3, invalid);
-  const expected = [
-    'NO_INTRABAR_PATH',
-    'NO_PARTIAL_FILLS',
-    'NO_ORDER_BOOK',
-  ] as const;
-  if (
-    items.length !== expected.length ||
-    items.some((item, index) => item !== expected[index])
-  ) {
-    invalid('limitations');
-  }
-  return Object.freeze([...expected]);
-}
-
-function position(value: unknown): OpenPosition {
-  const raw = snapshot(value, 'position', positionFields);
-  if (raw.direction !== 'LONG' && raw.direction !== 'SHORT') {
-    invalid('direction', raw.direction);
-  }
-  if (raw.timeframe !== '1h') invalid('timeframe', raw.timeframe);
-  if (raw.executionModelVersion !== 'BAR_BASED_H1_V1') {
-    invalid('executionModelVersion', raw.executionModelVersion);
-  }
-  return Object.freeze({
-    ...raw,
-    positionId: nonBlank(raw.positionId, 'positionId'),
-    instrumentId: nonBlank(raw.instrumentId, 'instrumentId'),
-    contractId: nonBlank(raw.contractId, 'contractId'),
-    strategyVersion: nonBlank(raw.strategyVersion, 'strategyVersion'),
-    datasetVersion: nonBlank(raw.datasetVersion, 'datasetVersion'),
-    direction: raw.direction,
-    quantity: positiveExecutionDecimal(raw.quantity, 'quantity'),
-    economicEntryPrice: positiveExecutionDecimal(
-      raw.economicEntryPrice,
-      'economicEntryPrice',
-    ),
-    accountingBasisPrice: positiveExecutionDecimal(
-      raw.accountingBasisPrice,
-      'accountingBasisPrice',
-    ),
-    protectiveStopPrice: positiveExecutionDecimal(
-      raw.protectiveStopPrice,
-      'protectiveStopPrice',
-    ),
-    entryCostAccountCurrency: nonnegativeExecutionDecimal(
-      raw.entryCostAccountCurrency,
-      'entryCostAccountCurrency',
-    ),
-    tickSize: positiveExecutionDecimal(raw.tickSize, 'tickSize'),
-    signalCloseTime: instant(raw.signalCloseTime, 'signalCloseTime'),
-    openedAt: instant(raw.openedAt, 'openedAt'),
-    limitations: limitations(raw.limitations),
-  }) as unknown as OpenPosition;
-}
-
 function adjustedExitPrice(
   current: OpenPosition,
   price: DecimalString,
@@ -582,6 +511,7 @@ function buildExit(
       accounting,
       'accountingCashChangeAccountCurrency',
     ),
+    limitations: executionLimitations,
   });
 }
 
@@ -589,7 +519,7 @@ export function executeContractRollover(
   input: ExecuteContractRolloverInput,
 ): ContractRolloverResult {
   assertPlainRecord(input, 'input');
-  const current = position(ownValue(input, 'position'));
+  const current = snapshotOpenPosition(ownValue(input, 'position'));
   const roll = rollEntry(ownValue(input, 'roll'), invalid);
   const decisionAt = instant(ownValue(input, 'decisionAt'), 'decisionAt');
   if (
@@ -601,9 +531,6 @@ export function executeContractRollover(
   }
   if (roll.fromContractId !== current.contractId) {
     invalid('contractId', roll.fromContractId);
-  }
-  if (current.contractId === current.instrumentId) {
-    invalid('contractId', current.contractId);
   }
   if (roll.toContractId === current.instrumentId) {
     invalid('contractId', roll.toContractId);
@@ -670,7 +597,6 @@ export function executeContractRollover(
   const reentryOpen = createH1OpenEvent(reentry.open as H1OpenEventInput);
   if (
     reentryOpen.contractId !== roll.toContractId ||
-    reentryOpen.contractId === current.instrumentId ||
     reentryOpen.instrumentId !== current.instrumentId
   ) {
     invalid('contractId', reentryOpen.contractId);
@@ -714,6 +640,7 @@ export function executeContractRollover(
       position: null,
       reasons: Object.freeze([...entryResult.reasons]) as
         readonly RiskDecisionReason[] | readonly ['INVALID_STOP_AT_OPEN'],
+      limitations: executionLimitations,
     });
   }
 
@@ -734,5 +661,6 @@ export function executeContractRollover(
     exit,
     reentry: entryResult,
     position: nextPosition,
+    limitations: executionLimitations,
   });
 }

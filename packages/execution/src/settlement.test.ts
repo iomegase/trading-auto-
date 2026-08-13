@@ -366,6 +366,63 @@ describe('causal settlement selection', () => {
     ).toBe(exact.version);
   });
 
+  it('ignores a future-observed revision at the required effective instant', () => {
+    const exact = createDailySettlement(validSettlement, constraints);
+    const futureRevision: Record<string, unknown> = {
+      effectiveAt: exact.effectiveAt,
+      observedAt: '2026-01-02T17:05:00.000000001Z',
+    };
+    for (const field of [
+      'version',
+      'source',
+      'contractId',
+      'currency',
+      'price',
+    ]) {
+      Object.defineProperty(futureRevision, field, {
+        enumerable: true,
+        get: () => {
+          throw new Error(`${field} must not be read before publication.`);
+        },
+      });
+    }
+
+    expect(
+      selectDailySettlement({
+        settlements: [exact, futureRevision as unknown as typeof exact],
+        requiredEffectiveAt: exact.effectiveAt,
+        decisionAt: exact.observedAt,
+        constraints,
+      }),
+    ).toStrictEqual(exact);
+  });
+
+  it('routes by contract before reading another contract economic fields', () => {
+    const exact = createDailySettlement(validSettlement, constraints);
+    const unrelated: Record<string, unknown> = {
+      effectiveAt: exact.effectiveAt,
+      observedAt: exact.observedAt,
+      contractId: 'OTHER-202603',
+    };
+    for (const field of ['version', 'source', 'currency', 'price']) {
+      Object.defineProperty(unrelated, field, {
+        enumerable: true,
+        get: () => {
+          throw new Error(`${field} belongs to another contract.`);
+        },
+      });
+    }
+
+    expect(
+      selectDailySettlement({
+        settlements: [unrelated as unknown as typeof exact, exact],
+        requiredEffectiveAt: exact.effectiveAt,
+        decisionAt: exact.observedAt,
+        constraints,
+      }),
+    ).toStrictEqual(exact);
+  });
+
   it('reads every field of the selected settlement exactly once', () => {
     const reads: Record<string, number> = {};
     const candidate: Record<string, unknown> = {};
@@ -544,6 +601,7 @@ describe('variation margin', () => {
         cashAfter: expectedVariation.startsWith('-') ? '985' : '1015',
         realizedEquityBefore: '1000',
         realizedEquityAfter: expectedVariation.startsWith('-') ? '985' : '1015',
+        limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
       });
       expect(result.position.accountingBasisPrice).toBe(price);
       expect(result.position.economicEntryPrice).toBe('100');
@@ -754,6 +812,31 @@ describe('variation margin', () => {
           }),
         'INVALID_EXECUTION_INPUT',
         'position.limitations',
+      );
+    }
+  });
+
+  it('rejects a forged continuous or off-grid position before settlement', () => {
+    const current = buildPosition();
+    const settlement = createDailySettlement(validSettlement, constraints);
+    for (const [field, value, expected] of [
+      ['instrumentId', current.contractId, 'contractId'],
+      ['protectiveStopPrice', '99.25', 'protectiveStopPrice'],
+      ['exitPolicyVersion', '', 'exitPolicyVersion'],
+    ] as const) {
+      expectError(
+        () =>
+          applyDailySettlement({
+            position: { ...current, [field]: value },
+            settlement,
+            decisionAt: settlement.observedAt,
+            currency: 'EUR',
+            monetaryValuePerPriceUnit: '5',
+            cash: '1000',
+            realizedEquity: '1000',
+          }),
+        'INVALID_EXECUTION_INPUT',
+        expected,
       );
     }
   });

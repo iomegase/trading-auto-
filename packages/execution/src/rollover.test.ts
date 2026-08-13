@@ -294,6 +294,31 @@ describe('explicit versioned roll schedules', () => {
     );
   });
 
+  it('rejects a continuous contract declared in the roll metadata', () => {
+    const continuousContract = {
+      ...oldContract,
+      contractId: product.productCode,
+    };
+
+    expectError(
+      () =>
+        createRollSchedule(
+          {
+            ...validSchedule,
+            entries: [
+              {
+                ...firstRoll,
+                fromContractId: continuousContract.contractId,
+              },
+            ],
+          },
+          [continuousContract, nextContract],
+        ),
+      'INVALID_EXECUTION_SCHEDULE',
+      'contracts',
+    );
+  });
+
   it('requires schedule observation before every roll', () => {
     expectError(
       () =>
@@ -508,6 +533,11 @@ describe('explicit rollover execution', () => {
     const result = executeContractRollover(input);
 
     expect(result.type).toBe('ROLLOVER_REENTERED');
+    expect(result.limitations).toEqual([
+      'NO_INTRABAR_PATH',
+      'NO_PARTIAL_FILLS',
+      'NO_ORDER_BOOK',
+    ]);
     expect(result.exit).toEqual({
       type: 'ROLLOVER_EXIT',
       positionId: input.position.positionId,
@@ -523,6 +553,7 @@ describe('explicit rollover execution', () => {
       exitCostsAccountCurrency: '1',
       netTradePnlAccountCurrency: '2',
       accountingCashChangeAccountCurrency: '2',
+      limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
     });
     expect(result.reentry).toMatchObject({
       type: 'ENTRY_FILLED',
@@ -638,6 +669,21 @@ describe('explicit rollover execution', () => {
             open: createH1OpenEvent({
               ...input.reentry.open,
               contractId: 'FDXS',
+            }),
+          },
+        }),
+      'INVALID_EXECUTION_INPUT',
+      'contractId',
+    );
+    expectError(
+      () =>
+        executeContractRollover({
+          ...input,
+          reentry: {
+            ...input.reentry,
+            open: createH1OpenEvent({
+              ...input.reentry.open,
+              contractId: oldContract.contractId,
             }),
           },
         }),
@@ -778,6 +824,24 @@ describe('explicit rollover execution', () => {
       ['timeframe', '4h', 'timeframe'],
       ['executionModelVersion', 'OTHER', 'executionModelVersion'],
       ['limitations', [], 'limitations'],
+    ] as const) {
+      expectError(
+        () =>
+          executeContractRollover({
+            ...input,
+            position: { ...input.position, [field]: value },
+          }),
+        'INVALID_EXECUTION_INPUT',
+        expected,
+      );
+    }
+  });
+
+  it('rejects forged position provenance and stop invariants before roll', () => {
+    const input = rolloverInput();
+    for (const [field, value, expected] of [
+      ['riskPolicyVersion', '', 'riskPolicyVersion'],
+      ['protectiveStopPrice', '99.25', 'protectiveStopPrice'],
     ] as const) {
       expectError(
         () =>

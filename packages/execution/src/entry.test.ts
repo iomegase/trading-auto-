@@ -139,6 +139,17 @@ describe('entry intents', () => {
     );
   });
 
+  it('rejects a risk decision identifier duplicated as the intent identifier', () => {
+    expectInputError(
+      () =>
+        createEntryIntent({
+          ...validIntent,
+          riskDecisionId: validIntent.intentId,
+        }),
+      'riskDecisionId',
+    );
+  });
+
   it('rejects a continuous symbol in place of a dated contract', () => {
     expectInputError(
       () => createEntryIntent({ ...validIntent, contractId: 'FDXS' }),
@@ -254,6 +265,7 @@ describe('entry execution at the next open', () => {
       fillPrice: '100.5',
       quantity: '2',
       occurredAt: open.openTime,
+      limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
       riskDecision: { status: 'APPROVE', quantity: '2' },
     });
     expect(Object.isFrozen(result)).toBe(true);
@@ -337,6 +349,7 @@ describe('entry execution at the next open', () => {
       quantity: '0',
       reasons: ['SIGNAL_EXPIRED'],
       riskDecision: null,
+      limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
     });
   });
 

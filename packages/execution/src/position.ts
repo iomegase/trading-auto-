@@ -26,15 +26,12 @@ import {
   type FilledEntryExecution,
 } from './entry.js';
 import { ExecutionInputError } from './errors.js';
+import {
+  executionLimitations,
+  type ExecutionLimitation,
+} from './limitations.js';
 
-export type ExecutionLimitation =
-  'NO_INTRABAR_PATH' | 'NO_PARTIAL_FILLS' | 'NO_ORDER_BOOK';
-
-const executionLimitations: readonly ExecutionLimitation[] = Object.freeze([
-  'NO_INTRABAR_PATH',
-  'NO_PARTIAL_FILLS',
-  'NO_ORDER_BOOK',
-]);
+export type { ExecutionLimitation } from './limitations.js';
 
 export interface OpenPositionInput {
   readonly positionId: string;
@@ -105,12 +102,14 @@ export type PositionH1BarResult =
       quantity: DecimalString;
       fillModel: 'NEXT_TRADABLE_PRICE';
       exitPolicyVersion: string;
+      limitations: readonly ExecutionLimitation[];
     }>
   | Readonly<{
       type: 'POSITION_REMAINS_OPEN';
       positionId: string;
       evaluatedAt: InstantString;
       availableAt: InstantString;
+      limitations: readonly ExecutionLimitation[];
     }>;
 
 const positionFields = Object.freeze([
@@ -155,6 +154,7 @@ const filledEntryFields = Object.freeze([
   'quantity',
   'reasons',
   'riskDecision',
+  'limitations',
 ] as const);
 
 const contextFields = Object.freeze([
@@ -278,9 +278,11 @@ function snapshotFilledEntry(input: unknown): FilledEntryExecution {
     'context',
     contextFields,
   );
+  const limitations = validatedLimitations(fill.limitations);
   return {
     type,
     ...fill,
+    limitations,
     riskDecision: { ...riskDecision, context },
   } as unknown as FilledEntryExecution;
 }
@@ -304,19 +306,33 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
   );
 
   if (fill.intentId !== intent.intentId) invalid('intentId', fill.intentId);
-  if (!decimalEqual(fill.quantity, fill.riskDecision.quantity)) {
-    invalid('quantity', fill.quantity);
+  const quantity = positiveExecutionDecimal(fill.quantity, 'quantity');
+  const riskQuantity = positiveExecutionDecimal(
+    fill.riskDecision.quantity,
+    'quantity',
+  );
+  if (!decimalEqual(quantity, riskQuantity)) {
+    invalid('quantity', quantity);
   }
   const context = fill.riskDecision.context;
-  if (!decimalEqual(fill.fillPrice, context.entryPrice)) {
+  const economicEntryPrice = positiveExecutionDecimal(
+    fill.fillPrice,
+    'fillPrice',
+  );
+  const contextEntryPrice = positiveExecutionDecimal(
+    context.entryPrice,
+    'entryPrice',
+  );
+  if (!decimalEqual(economicEntryPrice, contextEntryPrice)) {
     invalid('entryPrice', context.entryPrice);
   }
   const occurredAt = instant(fill.occurredAt, 'occurredAt');
   const availableAt = instant(fill.availableAt, 'availableAt');
+  const riskDecisionAt = instant(context.decisionAt, 'decisionAt');
   if (compare(availableAt, occurredAt) < 0) {
     invalid('occurredAt', occurredAt);
   }
-  if (compare(availableAt, context.decisionAt) !== 0) {
+  if (compare(availableAt, riskDecisionAt) !== 0) {
     invalid('availableAt', availableAt);
   }
   if (context.strategyVersion !== intent.strategyVersion) {
@@ -331,18 +347,17 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
   if (context.productCode !== intent.instrumentId) {
     invalid('productCode', context.productCode);
   }
-  if (!decimalEqual(intent.stopPrice, context.stopPrice)) {
+  const contextStopPrice = positiveExecutionDecimal(
+    context.stopPrice,
+    'stopPrice',
+  );
+  if (!decimalEqual(intent.stopPrice, contextStopPrice)) {
     invalid('stopPrice', context.stopPrice);
   }
   if (compare(occurredAt, intent.signalCloseTime) <= 0) {
     invalid('occurredAt', occurredAt);
   }
 
-  const quantity = positiveExecutionDecimal(fill.quantity, 'quantity');
-  const economicEntryPrice = positiveExecutionDecimal(
-    fill.fillPrice,
-    'economicEntryPrice',
-  );
   const entry = new ExecutionDecimal(economicEntryPrice);
   const stop = new ExecutionDecimal(intent.stopPrice);
   const tick = new ExecutionDecimal(tickSize);
@@ -384,9 +399,12 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
   });
 }
 
-function snapshotPosition(input: unknown): OpenPosition {
+export function snapshotOpenPosition(
+  input: unknown,
+  limitationsField = 'limitations',
+): Readonly<OpenPosition> {
   const value = snapshotFields(input, 'position', publicPositionFields);
-  const limitations = validatedLimitations(value.limitations);
+  const limitations = validatedLimitations(value.limitations, limitationsField);
   if (value.executionModelVersion !== 'BAR_BASED_H1_V1') {
     invalid('executionModelVersion', value.executionModelVersion);
   }
@@ -394,51 +412,106 @@ function snapshotPosition(input: unknown): OpenPosition {
   if (value.direction !== 'LONG' && value.direction !== 'SHORT') {
     invalid('direction', value.direction);
   }
-  return {
+  const positionId = nonBlank(value.positionId, 'positionId');
+  const intentId = nonBlank(value.intentId, 'intentId');
+  const riskDecisionId = nonBlank(value.riskDecisionId, 'riskDecisionId');
+  const instrumentId = nonBlank(value.instrumentId, 'instrumentId');
+  const contractId = nonBlank(value.contractId, 'contractId');
+  const strategyVersion = nonBlank(value.strategyVersion, 'strategyVersion');
+  const datasetVersion = nonBlank(value.datasetVersion, 'datasetVersion');
+  const riskPolicyVersion = nonBlank(
+    value.riskPolicyVersion,
+    'riskPolicyVersion',
+  );
+  const exitPolicyVersion = nonBlank(
+    value.exitPolicyVersion,
+    'exitPolicyVersion',
+  );
+  if (contractId === instrumentId) invalid('contractId', contractId);
+
+  const quantity = positiveExecutionDecimal(value.quantity, 'quantity');
+  const economicEntryPrice = positiveExecutionDecimal(
+    value.economicEntryPrice,
+    'economicEntryPrice',
+  );
+  const accountingBasisPrice = positiveExecutionDecimal(
+    value.accountingBasisPrice,
+    'accountingBasisPrice',
+  );
+  const protectiveStopPrice = positiveExecutionDecimal(
+    value.protectiveStopPrice,
+    'protectiveStopPrice',
+  );
+  const entryCostAccountCurrency = nonnegativeExecutionDecimal(
+    value.entryCostAccountCurrency,
+    'entryCostAccountCurrency',
+  );
+  const tickSize = positiveExecutionDecimal(value.tickSize, 'tickSize');
+  const signalCloseTime = instant(value.signalCloseTime, 'signalCloseTime');
+  const openedAt = instant(value.openedAt, 'openedAt');
+  if (compare(openedAt, signalCloseTime) <= 0) invalid('openedAt', openedAt);
+
+  const tick = new ExecutionDecimal(tickSize);
+  for (const [field, price] of [
+    ['economicEntryPrice', economicEntryPrice],
+    ['accountingBasisPrice', accountingBasisPrice],
+    ['protectiveStopPrice', protectiveStopPrice],
+  ] as const) {
+    if (!new ExecutionDecimal(price).mod(tick).isZero()) invalid(field, price);
+  }
+  const entry = new ExecutionDecimal(economicEntryPrice);
+  const stop = new ExecutionDecimal(protectiveStopPrice);
+  if (
+    (value.direction === 'LONG' && !stop.lt(entry)) ||
+    (value.direction === 'SHORT' && !stop.gt(entry))
+  ) {
+    invalid('protectiveStopPrice', protectiveStopPrice);
+  }
+
+  return Object.freeze({
     ...value,
+    positionId,
+    intentId,
+    riskDecisionId,
+    instrumentId,
+    contractId,
+    strategyVersion,
+    datasetVersion,
+    riskPolicyVersion,
+    exitPolicyVersion,
     limitations,
-    quantity: positiveExecutionDecimal(value.quantity, 'quantity'),
-    economicEntryPrice: positiveExecutionDecimal(
-      value.economicEntryPrice,
-      'economicEntryPrice',
-    ),
-    accountingBasisPrice: positiveExecutionDecimal(
-      value.accountingBasisPrice,
-      'accountingBasisPrice',
-    ),
-    protectiveStopPrice: positiveExecutionDecimal(
-      value.protectiveStopPrice,
-      'protectiveStopPrice',
-    ),
-    entryCostAccountCurrency: nonnegativeExecutionDecimal(
-      value.entryCostAccountCurrency,
-      'entryCostAccountCurrency',
-    ),
-    tickSize: positiveExecutionDecimal(value.tickSize, 'tickSize'),
-    signalCloseTime: instant(value.signalCloseTime, 'signalCloseTime'),
-    openedAt: instant(value.openedAt, 'openedAt'),
-  } as OpenPosition;
+    quantity,
+    economicEntryPrice,
+    accountingBasisPrice,
+    protectiveStopPrice,
+    entryCostAccountCurrency,
+    tickSize,
+    signalCloseTime,
+    openedAt,
+  }) as Readonly<OpenPosition>;
 }
 
-function validatedLimitations(value: unknown): readonly ExecutionLimitation[] {
+function validatedLimitations(
+  value: unknown,
+  field = 'limitations',
+): readonly ExecutionLimitation[] {
   let length: number;
   try {
-    if (!Array.isArray(value)) invalid('limitations');
+    if (!Array.isArray(value)) invalid(field);
     length = value.length;
   } catch {
-    invalid('limitations');
+    invalid(field);
   }
-  if (length !== executionLimitations.length) invalid('limitations');
+  if (length !== executionLimitations.length) invalid(field);
 
   for (let index = 0; index < length; index += 1) {
     let descriptor: PropertyDescriptor | undefined;
     try {
       descriptor = Object.getOwnPropertyDescriptor(value, String(index));
     } catch {
-      invalid('limitations');
+      invalid(field);
     }
-    if (descriptor === undefined || !descriptor.enumerable)
-      invalid('limitations');
+    if (descriptor === undefined || !descriptor.enumerable) invalid(field);
     let item: unknown;
     if ('value' in descriptor) {
       item = descriptor.value;
@@ -448,10 +521,10 @@ function validatedLimitations(value: unknown): readonly ExecutionLimitation[] {
       try {
         item = descriptor.get.call(value);
       } catch {
-        invalid('limitations');
+        invalid(field);
       }
     }
-    if (item !== executionLimitations[index]) invalid('limitations');
+    if (item !== executionLimitations[index]) invalid(field);
   }
   return executionLimitations;
 }
@@ -517,7 +590,7 @@ export function processPositionH1Bar(
   input: ProcessPositionH1BarInput,
 ): PositionH1BarResult {
   assertPlainRecord(input, 'input');
-  const position = snapshotPosition(ownValue(input, 'position'));
+  const position = snapshotOpenPosition(ownValue(input, 'position'));
   const openEvent = createH1OpenEvent(
     ownValue(input, 'openEvent') as H1OpenEventInput,
   );
@@ -526,7 +599,8 @@ export function processPositionH1Bar(
     ownValue(input, 'adverseExitSlippagePriceUnits'),
     'adverseExitSlippagePriceUnits',
   );
-  if (!new ExecutionDecimal(adjustment).mod(position.tickSize).isZero()) {
+  const tick = new ExecutionDecimal(position.tickSize);
+  if (!new ExecutionDecimal(adjustment).mod(tick).isZero()) {
     invalid('adverseExitSlippagePriceUnits', adjustment);
   }
   if (openEvent.instrumentId !== position.instrumentId) {
@@ -540,6 +614,9 @@ export function processPositionH1Bar(
   }
   if (compare(openEvent.availableAt, decisionAt) > 0) {
     invalid('decisionAt', decisionAt);
+  }
+  if (!new ExecutionDecimal(openEvent.price).mod(tick).isZero()) {
+    invalid('openEvent.price', openEvent.price);
   }
 
   const open = new ExecutionDecimal(openEvent.price);
@@ -574,6 +651,16 @@ export function processPositionH1Bar(
   if (compare(bar.availableAt, decisionAt) > 0)
     invalid('decisionAt', decisionAt);
 
+  for (const [field, price] of [
+    ['high', bar.high],
+    ['low', bar.low],
+    ['close', bar.close],
+  ] as const) {
+    if (!new ExecutionDecimal(price).mod(tick).isZero()) {
+      invalid(`bar.${field}`, price);
+    }
+  }
+
   const high = new ExecutionDecimal(bar.high);
   const low = new ExecutionDecimal(bar.low);
 
@@ -606,6 +693,7 @@ export function processPositionH1Bar(
       quantity: position.quantity,
       fillModel: 'NEXT_TRADABLE_PRICE' as const,
       exitPolicyVersion: position.exitPolicyVersion,
+      limitations: executionLimitations,
     });
   }
 
@@ -614,5 +702,6 @@ export function processPositionH1Bar(
     positionId: position.positionId,
     evaluatedAt: bar.closeTime,
     availableAt: bar.availableAt,
+    limitations: executionLimitations,
   });
 }

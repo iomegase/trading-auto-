@@ -220,6 +220,18 @@ describe('open futures positions', () => {
     );
   });
 
+  it('requires the filled entry to carry the execution limitations', () => {
+    const input = positionInput();
+    expectInputError(
+      () =>
+        createOpenPosition({
+          ...input,
+          fill: { ...input.fill, limitations: [] },
+        }),
+      'limitations',
+    );
+  });
+
   it.each([
     ['positionId', ''],
     ['entryCostAccountCurrency', '-1'],
@@ -426,6 +438,43 @@ describe('open futures positions', () => {
       'occurredAt',
     );
   });
+
+  it('maps malformed fill and risk-context values to typed errors', () => {
+    const input = positionInput();
+    for (const [part, field, value, expected] of [
+      ['fill', 'quantity', 'bad', 'quantity'],
+      ['fill', 'fillPrice', 'bad', 'fillPrice'],
+      ['riskDecision', 'quantity', 'bad', 'quantity'],
+      ['context', 'entryPrice', 'bad', 'entryPrice'],
+      ['context', 'stopPrice', 'bad', 'stopPrice'],
+      ['context', 'decisionAt', 'not-an-instant', 'decisionAt'],
+    ] as const) {
+      const fill =
+        part === 'fill'
+          ? { ...input.fill, [field]: value }
+          : {
+              ...input.fill,
+              riskDecision:
+                part === 'riskDecision'
+                  ? { ...input.fill.riskDecision, [field]: value }
+                  : {
+                      ...input.fill.riskDecision,
+                      context: {
+                        ...input.fill.riskDecision.context,
+                        [field]: value,
+                      },
+                    },
+            };
+      expectInputError(
+        () =>
+          createOpenPosition({
+            ...input,
+            fill: fill as unknown as FilledEntryExecution,
+          }),
+        expected,
+      );
+    }
+  });
 });
 
 describe('fixed protective stops and close-known trend exits', () => {
@@ -555,6 +604,7 @@ describe('fixed protective stops and close-known trend exits', () => {
         quantity: '2',
         fillModel: 'NEXT_TRADABLE_PRICE',
         exitPolicyVersion: EXIT_POLICY_VERSION,
+        limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
       });
       expect(Object.isFrozen(result)).toBe(true);
     },
@@ -578,6 +628,7 @@ describe('fixed protective stops and close-known trend exits', () => {
         positionId: `POSITION-${direction}`,
         evaluatedAt: '2026-01-02T13:00:00Z',
         availableAt: '2026-01-02T13:00:00Z',
+        limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
       });
       expect(current).toEqual(before);
       expect(current.protectiveStopPrice).toBe(
@@ -785,6 +836,42 @@ describe('fixed protective stops and close-known trend exits', () => {
     );
   });
 
+  it('rejects forged position provenance, chronology, and price invariants', () => {
+    const current = position();
+    const base = {
+      position: current,
+      openEvent: openEvent('98'),
+      bar: bar(),
+      currentKijun: null,
+      decisionAt: '2026-01-02T12:00:00Z',
+      adverseExitSlippagePriceUnits: '0.5',
+    } as const;
+    for (const [field, value, expected] of [
+      ['positionId', ' ', 'positionId'],
+      ['intentId', '', 'intentId'],
+      ['riskDecisionId', '\t', 'riskDecisionId'],
+      ['strategyVersion', '', 'strategyVersion'],
+      ['datasetVersion', '', 'datasetVersion'],
+      ['riskPolicyVersion', '', 'riskPolicyVersion'],
+      ['exitPolicyVersion', '', 'exitPolicyVersion'],
+      ['instrumentId', current.contractId, 'contractId'],
+      ['economicEntryPrice', '100.25', 'economicEntryPrice'],
+      ['accountingBasisPrice', '100.25', 'accountingBasisPrice'],
+      ['protectiveStopPrice', '99.25', 'protectiveStopPrice'],
+      ['protectiveStopPrice', '101', 'protectiveStopPrice'],
+      ['openedAt', current.signalCloseTime, 'openedAt'],
+    ] as const) {
+      expectInputError(
+        () =>
+          processPositionH1Bar({
+            ...base,
+            position: { ...current, [field]: value },
+          }),
+        expected,
+      );
+    }
+  });
+
   it('rejects open and closed-bar identity, timing, and availability mismatches', () => {
     const current = position();
     const base = {
@@ -820,6 +907,40 @@ describe('fixed protective stops and close-known trend exits', () => {
         next.bar = createH1ClosedBarEvent({ ...base.bar, [field]: value });
       }
       expectInputError(() => processPositionH1Bar(next), expected);
+    }
+  });
+
+  it('rejects off-grid open and closed-bar prices before execution', () => {
+    expectInputError(
+      () =>
+        processPositionH1Bar({
+          position: position(),
+          openEvent: openEvent('98.25'),
+          bar: bar(),
+          currentKijun: null,
+          decisionAt: '2026-01-02T12:00:00Z',
+          adverseExitSlippagePriceUnits: '0.5',
+        }),
+      'openEvent.price',
+    );
+
+    for (const [field, value] of [
+      ['high', '102.25'],
+      ['low', '99.25'],
+      ['close', '101.25'],
+    ] as const) {
+      expectInputError(
+        () =>
+          processPositionH1Bar({
+            position: position(),
+            openEvent: openEvent(),
+            bar: bar({ [field]: value }),
+            currentKijun: kijun(),
+            decisionAt: '2026-01-02T13:00:00Z',
+            adverseExitSlippagePriceUnits: '0.5',
+          }),
+        `bar.${field}`,
+      );
     }
   });
 

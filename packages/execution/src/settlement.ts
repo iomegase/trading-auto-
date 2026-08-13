@@ -13,7 +13,11 @@ import {
   signedExecutionDecimal,
 } from './decimal.js';
 import { ExecutionInputError } from './errors.js';
-import type { ExecutionLimitation, OpenPosition } from './position.js';
+import {
+  executionLimitations,
+  type ExecutionLimitation,
+} from './limitations.js';
+import { snapshotOpenPosition, type OpenPosition } from './position.js';
 
 const MAX_SETTLEMENTS = 10_000;
 
@@ -75,6 +79,7 @@ export interface DailySettlementApplied {
   readonly realizedEquityBefore: DecimalString;
   readonly realizedEquityAfter: DecimalString;
   readonly position: Readonly<OpenPosition>;
+  readonly limitations: readonly ExecutionLimitation[];
 }
 
 const settlementFields = Object.freeze([
@@ -91,30 +96,6 @@ const constraintFields = Object.freeze([
   'contractId',
   'currency',
   'tickSize',
-] as const);
-
-const positionFields = Object.freeze([
-  'positionId',
-  'intentId',
-  'riskDecisionId',
-  'instrumentId',
-  'contractId',
-  'strategyVersion',
-  'datasetVersion',
-  'riskPolicyVersion',
-  'timeframe',
-  'direction',
-  'quantity',
-  'economicEntryPrice',
-  'accountingBasisPrice',
-  'protectiveStopPrice',
-  'entryCostAccountCurrency',
-  'tickSize',
-  'signalCloseTime',
-  'openedAt',
-  'executionModelVersion',
-  'exitPolicyVersion',
-  'limitations',
 ] as const);
 
 function invalid(field: string, value?: unknown): never {
@@ -316,8 +297,12 @@ export function selectDailySettlement(
     'decisionAt',
     dataError,
   );
-  const expected = ownValue(input, 'constraints', dataError) as
-    DailySettlementConstraintsInput | undefined;
+  let expected: ReturnType<typeof constraints>;
+  try {
+    expected = constraints(ownValue(input, 'constraints', dataError));
+  } catch {
+    dataError('settlement');
+  }
 
   const matches: DailySettlementInput[] = [];
   for (const candidate of settlements) {
@@ -328,85 +313,34 @@ export function selectDailySettlement(
       dataError,
     );
     if (compare(effectiveAt, requiredEffectiveAt) === 0) {
+      const observedAt = instant(
+        ownValue(candidate, 'observedAt', dataError),
+        'settlement',
+        dataError,
+      );
+      if (compare(observedAt, decisionAt) > 0) continue;
+      const contractId = ownValue(candidate, 'contractId', dataError);
+      if (contractId !== expected.contractId) continue;
       matches.push({
         effectiveAt,
         version: ownValue(candidate, 'version', dataError) as string,
         source: ownValue(candidate, 'source', dataError) as string,
-        observedAt: ownValue(candidate, 'observedAt', dataError) as string,
-        contractId: ownValue(candidate, 'contractId', dataError) as string,
+        observedAt,
+        contractId,
         currency: ownValue(candidate, 'currency', dataError) as string,
         price: ownValue(candidate, 'price', dataError) as string,
       });
     }
   }
   if (matches.length !== 1) dataError('settlement', { count: matches.length });
-  const match = matches.at(0);
-  if (match === undefined || expected === undefined) dataError('settlement');
+  const match = matches[0] as DailySettlementInput;
   let selected: Readonly<DailySettlement>;
   try {
     selected = createDailySettlement(match, expected);
   } catch {
     dataError('settlement');
   }
-  if (compare(selected.observedAt, decisionAt) > 0) {
-    dataError('settlement', { observedAt: selected.observedAt, decisionAt });
-  }
   return selected;
-}
-
-function limitations(value: unknown): readonly ExecutionLimitation[] {
-  let length: number;
-  try {
-    if (!Array.isArray(value)) invalid('position.limitations');
-    length = value.length;
-  } catch {
-    invalid('position.limitations');
-  }
-  if (length !== 3) invalid('position.limitations');
-  const expected = [
-    'NO_INTRABAR_PATH',
-    'NO_PARTIAL_FILLS',
-    'NO_ORDER_BOOK',
-  ] as const;
-  const result: ExecutionLimitation[] = [];
-  for (let index = 0; index < length; index += 1) {
-    const item = ownValue(value, String(index));
-    const expectedItem = expected[index];
-    if (expectedItem === undefined || item !== expectedItem) {
-      invalid('position.limitations');
-    }
-    result.push(expectedItem);
-  }
-  return Object.freeze(result);
-}
-
-function position(input: unknown): OpenPosition {
-  const value = snapshot(input, 'position', positionFields);
-  if (value.direction !== 'LONG' && value.direction !== 'SHORT') {
-    invalid('direction', value.direction);
-  }
-  if (value.timeframe !== '1h') invalid('timeframe', value.timeframe);
-  if (value.executionModelVersion !== 'BAR_BASED_H1_V1') {
-    invalid('executionModelVersion', value.executionModelVersion);
-  }
-  return Object.freeze({
-    ...value,
-    positionId: nonBlank(value.positionId, 'positionId'),
-    contractId: nonBlank(value.contractId, 'contractId'),
-    direction: value.direction,
-    quantity: positiveExecutionDecimal(value.quantity, 'quantity'),
-    economicEntryPrice: positiveExecutionDecimal(
-      value.economicEntryPrice,
-      'economicEntryPrice',
-    ),
-    accountingBasisPrice: positiveExecutionDecimal(
-      value.accountingBasisPrice,
-      'accountingBasisPrice',
-    ),
-    tickSize: positiveExecutionDecimal(value.tickSize, 'tickSize'),
-    openedAt: instant(value.openedAt, 'openedAt'),
-    limitations: limitations(value.limitations),
-  }) as unknown as OpenPosition;
 }
 
 function signedOutput(
@@ -420,7 +354,10 @@ export function applyDailySettlement(
   input: ApplyDailySettlementInput,
 ): Readonly<DailySettlementApplied> {
   assertPlainRecord(input, 'input');
-  const current = position(ownValue(input, 'position'));
+  const current = snapshotOpenPosition(
+    ownValue(input, 'position'),
+    'position.limitations',
+  );
   const decisionAt = instant(ownValue(input, 'decisionAt'), 'decisionAt');
   const settlementCurrency = currency(ownValue(input, 'currency'), 'currency');
   const monetaryValue = positiveExecutionDecimal(
@@ -498,5 +435,6 @@ export function applyDailySettlement(
     realizedEquityBefore,
     realizedEquityAfter,
     position: updatedPosition,
+    limitations: executionLimitations,
   });
 }

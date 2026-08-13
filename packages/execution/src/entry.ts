@@ -23,6 +23,10 @@ import {
   positiveExecutionDecimal,
 } from './decimal.js';
 import { ExecutionInputError } from './errors.js';
+import {
+  executionLimitations,
+  type ExecutionLimitation,
+} from './limitations.js';
 
 export type EntryDirection = 'LONG' | 'SHORT';
 export type ApprovedRiskDecisionStatus = 'APPROVE' | 'REDUCE_SIZE';
@@ -78,6 +82,7 @@ export type EntryExecutionResult =
       quantity: DecimalString;
       reasons: readonly RiskDecisionReason[];
       riskDecision: RiskDecision;
+      limitations: readonly ExecutionLimitation[];
     }>
   | Readonly<{
       type: 'ENTRY_CANCELLED';
@@ -87,6 +92,7 @@ export type EntryExecutionResult =
       quantity: DecimalString;
       reasons: readonly ExecutionCancellationReason[];
       riskDecision: RiskDecision | null;
+      limitations: readonly ExecutionLimitation[];
     }>;
 
 export type FilledEntryExecution = Extract<
@@ -241,6 +247,7 @@ export function createEntryIntent(input: EntryIntentInput): EntryIntent {
   const strategyVersion = nonBlank(values.strategyVersion, 'strategyVersion');
   const datasetVersion = nonBlank(values.datasetVersion, 'datasetVersion');
   const riskDecisionId = nonBlank(values.riskDecisionId, 'riskDecisionId');
+  if (riskDecisionId === intentId) invalid('riskDecisionId', riskDecisionId);
   if (contractId === instrumentId) invalid('contractId', contractId);
   if (values.timeframe !== '1h') invalid('timeframe', values.timeframe);
   if (values.direction !== 'LONG' && values.direction !== 'SHORT') {
@@ -297,6 +304,7 @@ function cancelled(
     quantity: zero(),
     reasons: Object.freeze([...reasons]),
     riskDecision,
+    limitations: executionLimitations,
   });
 }
 
@@ -472,5 +480,6 @@ export function executeEntryAtNextOpen(
     quantity: riskDecision.quantity,
     reasons: Object.freeze([...riskDecision.reasons]),
     riskDecision,
+    limitations: executionLimitations,
   });
 }

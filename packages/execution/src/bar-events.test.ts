@@ -139,6 +139,25 @@ describe('H1 execution market-data events', () => {
     },
   );
 
+  it('rejects a continuous symbol for open and closed events', () => {
+    expectInvalid(
+      () =>
+        createH1OpenEvent({
+          ...validOpen,
+          contractId: validOpen.instrumentId,
+        }),
+      'contractId',
+    );
+    expectInvalid(
+      () =>
+        createH1ClosedBarEvent({
+          ...validClosed,
+          contractId: validClosed.instrumentId,
+        }),
+      'contractId',
+    );
+  });
+
   it('snapshots every open-event accessor exactly once', () => {
     const reads: Record<string, number> = {};
     const input: Record<string, unknown> = {};

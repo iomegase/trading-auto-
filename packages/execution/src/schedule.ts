@@ -329,6 +329,7 @@ function contractWindow(value: unknown): ContractWindow {
     'lastTradeAt',
     dataError,
   );
+  if (contractId === productCode) dataError('contractId', contractId);
   if (compare(firstTradeAt, lastTradeAt) >= 0) dataError('contract');
   return Object.freeze({ contractId, productCode, firstTradeAt, lastTradeAt });
 }
@@ -379,6 +380,7 @@ export function selectNextTradableH1Open(
   }
 
   let selected: H1OpenEvent | null = null;
+  const eligibleOpenTimes = new Set<InstantString>();
   for (const rawEvent of openEvents) {
     assertPlainRecord(rawEvent, 'openEvents', dataError);
     const availableAt = instant(
@@ -388,23 +390,26 @@ export function selectNextTradableH1Open(
     );
     if (compare(availableAt, decisionAt) > 0) continue;
 
+    const instrumentId = ownValue(rawEvent, 'instrumentId', dataError);
+    const contractId = ownValue(rawEvent, 'contractId', dataError);
+    if (contractId !== contract.contractId) {
+      dataError('contractId', contractId);
+    }
+    if (instrumentId !== contract.productCode) {
+      dataError('instrumentId', instrumentId);
+    }
+
     let event: H1OpenEvent;
     try {
       event = createH1OpenEvent({
-        instrumentId: ownValue(rawEvent, 'instrumentId', dataError) as string,
-        contractId: ownValue(rawEvent, 'contractId', dataError) as string,
+        instrumentId,
+        contractId,
         openTime: ownValue(rawEvent, 'openTime', dataError) as string,
         availableAt,
         price: ownValue(rawEvent, 'price', dataError) as string,
       });
     } catch {
       dataError('openEvents');
-    }
-    if (event.contractId !== contract.contractId) {
-      dataError('contractId', event.contractId);
-    }
-    if (event.instrumentId !== contract.productCode) {
-      dataError('instrumentId', event.instrumentId);
     }
     if (
       compare(event.openTime, signalCloseTime) <= 0 ||
@@ -415,6 +420,10 @@ export function selectNextTradableH1Open(
     ) {
       continue;
     }
+    if (eligibleOpenTimes.has(event.openTime)) {
+      dataError('openEvents', { duplicateOpenTime: event.openTime });
+    }
+    eligibleOpenTimes.add(event.openTime);
     if (selected === null || compare(event.openTime, selected.openTime) < 0) {
       selected = event;
     }
