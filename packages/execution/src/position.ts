@@ -150,6 +150,7 @@ const publicPositionFields = Object.freeze([
 const filledEntryFields = Object.freeze([
   'intentId',
   'occurredAt',
+  'availableAt',
   'fillPrice',
   'quantity',
   'reasons',
@@ -310,8 +311,13 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
   if (!decimalEqual(fill.fillPrice, context.entryPrice)) {
     invalid('entryPrice', context.entryPrice);
   }
-  if (compare(fill.occurredAt, context.decisionAt) !== 0) {
-    invalid('occurredAt', fill.occurredAt);
+  const occurredAt = instant(fill.occurredAt, 'occurredAt');
+  const availableAt = instant(fill.availableAt, 'availableAt');
+  if (compare(availableAt, occurredAt) < 0) {
+    invalid('occurredAt', occurredAt);
+  }
+  if (compare(availableAt, context.decisionAt) !== 0) {
+    invalid('availableAt', availableAt);
   }
   if (context.strategyVersion !== intent.strategyVersion) {
     invalid('strategyVersion', context.strategyVersion);
@@ -328,8 +334,8 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
   if (!decimalEqual(intent.stopPrice, context.stopPrice)) {
     invalid('stopPrice', context.stopPrice);
   }
-  if (compare(fill.occurredAt, intent.signalCloseTime) <= 0) {
-    invalid('occurredAt', fill.occurredAt);
+  if (compare(occurredAt, intent.signalCloseTime) <= 0) {
+    invalid('occurredAt', occurredAt);
   }
 
   const quantity = positiveExecutionDecimal(fill.quantity, 'quantity');
@@ -371,7 +377,7 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
     entryCostAccountCurrency,
     tickSize,
     signalCloseTime: intent.signalCloseTime,
-    openedAt: instant(fill.occurredAt, 'occurredAt'),
+    openedAt: occurredAt,
     executionModelVersion: 'BAR_BASED_H1_V1',
     exitPolicyVersion,
     limitations: executionLimitations,

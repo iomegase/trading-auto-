@@ -339,6 +339,93 @@ describe('open futures positions', () => {
     ).toBe('POSITION-LONG');
     expect(reads).toBe(1);
   });
+
+  it('maps hostile position-construction records to typed errors', () => {
+    for (const value of [null, [], new Date(0)]) {
+      expectInputError(
+        () => createOpenPosition(value as unknown as OpenPositionInput),
+        'input',
+      );
+    }
+    const descriptorTrap = new Proxy(positionInput(), {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectInputError(() => createOpenPosition(descriptorTrap), 'positionId');
+
+    for (const descriptor of [
+      { enumerable: false, value: 'POSITION-LONG' },
+      { enumerable: true, set: () => undefined },
+      {
+        enumerable: true,
+        get: () => {
+          throw new Error('getter trap');
+        },
+      },
+    ]) {
+      const input = { ...positionInput() } as Record<string, unknown>;
+      Object.defineProperty(input, 'positionId', descriptor);
+      expectInputError(
+        () => createOpenPosition(input as unknown as OpenPositionInput),
+        'positionId',
+      );
+    }
+  });
+
+  it('rejects invalid fresh risk status, availability, and policy version', () => {
+    const input = positionInput();
+    expectInputError(
+      () =>
+        createOpenPosition({
+          ...input,
+          fill: {
+            ...input.fill,
+            riskDecision: { ...input.fill.riskDecision, status: 'REJECT' },
+          },
+        }),
+      'riskDecision',
+    );
+    expectInputError(
+      () =>
+        createOpenPosition({
+          ...input,
+          fill: {
+            ...input.fill,
+            availableAt: asInstantString('2026-01-02T12:00:01Z'),
+          },
+        }),
+      'availableAt',
+    );
+    expectInputError(
+      () =>
+        createOpenPosition({
+          ...input,
+          fill: {
+            ...input.fill,
+            riskDecision: {
+              ...input.fill.riskDecision,
+              context: {
+                ...input.fill.riskDecision.context,
+                riskPolicyVersion: '',
+              },
+            },
+          },
+        }),
+      'riskPolicyVersion',
+    );
+    expectInputError(
+      () =>
+        createOpenPosition({
+          ...input,
+          fill: {
+            ...input.fill,
+            occurredAt: input.intent.signalCloseTime,
+          },
+        }),
+      'occurredAt',
+    );
+  });
 });
 
 describe('fixed protective stops and close-known trend exits', () => {
@@ -602,6 +689,152 @@ describe('fixed protective stops and close-known trend exits', () => {
           adverseExitSlippagePriceUnits: '0.5',
         }),
       'limitations',
+    );
+  });
+
+  it('rejects forged position enums and hostile limitation arrays', () => {
+    const current = position();
+    const base = {
+      position: current,
+      openEvent: openEvent(),
+      bar: bar(),
+      currentKijun: kijun(),
+      decisionAt: '2026-01-02T13:00:00Z',
+      adverseExitSlippagePriceUnits: '0.5',
+    } as const;
+    for (const [field, value, expected] of [
+      ['executionModelVersion', 'OTHER', 'executionModelVersion'],
+      ['timeframe', '4h', 'timeframe'],
+      ['direction', 'SIDEWAYS', 'direction'],
+    ] as const) {
+      expectInputError(
+        () =>
+          processPositionH1Bar({
+            ...base,
+            position: { ...current, [field]: value },
+          }),
+        expected,
+      );
+    }
+
+    const hostileLimitations: Array<readonly unknown[]> = [
+      [],
+      ['WRONG', ...current.limitations.slice(1)],
+      new Array(3),
+    ];
+    const descriptorTrap = new Proxy([...current.limitations], {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    hostileLimitations.push(descriptorTrap);
+    const setterOnly: unknown[] = [...current.limitations];
+    Object.defineProperty(setterOnly, '0', {
+      enumerable: true,
+      set: () => undefined,
+    });
+    hostileLimitations.push(setterOnly);
+    const getterTrap: unknown[] = [...current.limitations];
+    Object.defineProperty(getterTrap, '0', {
+      enumerable: true,
+      get: () => {
+        throw new Error('getter trap');
+      },
+    });
+    hostileLimitations.push(getterTrap);
+
+    for (const limitations of hostileLimitations) {
+      expectInputError(
+        () =>
+          processPositionH1Bar({
+            ...base,
+            position: { ...current, limitations } as OpenPosition,
+          }),
+        'limitations',
+      );
+    }
+    expectInputError(
+      () =>
+        processPositionH1Bar({
+          ...base,
+          position: { ...current, openedAt: 'invalid' as InstantString },
+        }),
+      'openedAt',
+    );
+    expectInputError(
+      () =>
+        processPositionH1Bar({
+          ...base,
+          position: {
+            ...current,
+            openedAt: 1 as unknown as InstantString,
+          },
+        }),
+      'openedAt',
+    );
+    expectInputError(
+      () =>
+        processPositionH1Bar({
+          ...base,
+          position: {
+            ...current,
+            limitations: {} as unknown as OpenPosition['limitations'],
+          },
+        }),
+      'limitations',
+    );
+  });
+
+  it('rejects open and closed-bar identity, timing, and availability mismatches', () => {
+    const current = position();
+    const base = {
+      position: current,
+      openEvent: openEvent(),
+      bar: bar(),
+      currentKijun: kijun(),
+      decisionAt: '2026-01-02T13:00:00Z',
+      adverseExitSlippagePriceUnits: '0.5',
+    } as const;
+    for (const [part, field, value, expected] of [
+      ['openEvent', 'instrumentId', 'OTHER', 'instrumentId'],
+      ['openEvent', 'contractId', 'OTHER', 'contractId'],
+      [
+        'openEvent',
+        'availableAt',
+        '2026-01-02T13:00:00.000000001Z',
+        'decisionAt',
+      ],
+      ['bar', 'instrumentId', 'OTHER', 'instrumentId'],
+      ['bar', 'contractId', 'OTHER', 'contractId'],
+      ['bar', 'openTime', '2026-01-02T12:00:01Z', 'bar.openTime'],
+      ['bar', 'open', '100.5', 'bar.openTime'],
+      ['bar', 'availableAt', '2026-01-02T13:00:00.000000001Z', 'decisionAt'],
+    ] as const) {
+      const next = { ...base };
+      if (part === 'openEvent') {
+        next.openEvent = createH1OpenEvent({
+          ...base.openEvent,
+          [field]: value,
+        });
+      } else {
+        next.bar = createH1ClosedBarEvent({ ...base.bar, [field]: value });
+      }
+      expectInputError(() => processPositionH1Bar(next), expected);
+    }
+  });
+
+  it('rejects a nonpositive adverse gap fill', () => {
+    expectInputError(
+      () =>
+        processPositionH1Bar({
+          position: position('LONG'),
+          openEvent: openEvent('0.5'),
+          bar: bar({ open: '0.5', high: '1', low: '0.5', close: '1' }),
+          currentKijun: null,
+          decisionAt: '2026-01-02T13:00:00Z',
+          adverseExitSlippagePriceUnits: '0.5',
+        }),
+      'fillPrice',
     );
   });
 

@@ -5,11 +5,7 @@ import {
 } from '@trading-auto/domain';
 import { Temporal } from '@js-temporal/polyfill';
 
-import {
-  createH1OpenEvent,
-  type H1OpenEvent,
-  type H1OpenEventInput,
-} from './bar-events.js';
+import { createH1OpenEvent, type H1OpenEvent } from './bar-events.js';
 import { ExecutionInputError } from './errors.js';
 
 const MAX_INTERVALS = 10_000;
@@ -384,9 +380,23 @@ export function selectNextTradableH1Open(
 
   let selected: H1OpenEvent | null = null;
   for (const rawEvent of openEvents) {
+    assertPlainRecord(rawEvent, 'openEvents', dataError);
+    const availableAt = instant(
+      ownValue(rawEvent, 'availableAt', dataError),
+      'openEvents',
+      dataError,
+    );
+    if (compare(availableAt, decisionAt) > 0) continue;
+
     let event: H1OpenEvent;
     try {
-      event = createH1OpenEvent(rawEvent as H1OpenEventInput);
+      event = createH1OpenEvent({
+        instrumentId: ownValue(rawEvent, 'instrumentId', dataError) as string,
+        contractId: ownValue(rawEvent, 'contractId', dataError) as string,
+        openTime: ownValue(rawEvent, 'openTime', dataError) as string,
+        availableAt,
+        price: ownValue(rawEvent, 'price', dataError) as string,
+      });
     } catch {
       dataError('openEvents');
     }
@@ -398,7 +408,6 @@ export function selectNextTradableH1Open(
     }
     if (
       compare(event.openTime, signalCloseTime) <= 0 ||
-      compare(event.availableAt, decisionAt) > 0 ||
       compare(event.openTime, contract.firstTradeAt) < 0 ||
       compare(event.openTime, contract.lastTradeAt) >= 0 ||
       !includesInstant(schedule.tradableIntervals, event.openTime) ||

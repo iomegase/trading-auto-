@@ -60,4 +60,118 @@ describe('ExecutionInputError', () => {
 
     expect(error.details).toEqual({ values: '[truncated]' });
   });
+
+  it('stabilizes unsupported, deep, and hostile nested details', () => {
+    const oversizedObject = Object.fromEntries(
+      Array.from({ length: 1025 }, (_value, index) => [
+        `k${String(index)}`,
+        index,
+      ]),
+    );
+    const deep: Record<string, unknown> = {};
+    let cursor = deep;
+    for (let index = 0; index < 18; index += 1) {
+      const next: Record<string, unknown> = {};
+      cursor.next = next;
+      cursor = next;
+    }
+    const revokedArray = Proxy.revocable([], {});
+    revokedArray.revoke();
+
+    const error = new ExecutionInputError('INVALID_DATA', 'Hostile details.', {
+      bigint: 1n,
+      date: new Date(0),
+      oversizedObject,
+      deep,
+      revokedArray: revokedArray.proxy,
+    });
+
+    expect(error.details).toMatchObject({
+      bigint: '[unsupported]',
+      date: '[unsupported]',
+      oversizedObject: '[truncated]',
+      revokedArray: '[unreadable]',
+    });
+    let cloned: unknown = error.details?.deep;
+    for (let index = 0; index < 18 && typeof cloned === 'object'; index += 1) {
+      cloned = (cloned as { readonly next: unknown }).next;
+    }
+    expect(cloned).toBe('[truncated]');
+  });
+
+  it('stabilizes hostile array length, elements, and object descriptors', () => {
+    const hostileLength = new Proxy([], {
+      get: (_target, property) => {
+        if (property === 'length') throw new Error('unreadable length');
+        return undefined;
+      },
+    });
+    const hostileElement = new Proxy(['x'], {
+      getOwnPropertyDescriptor: (_target, property) => {
+        if (property === '0') throw new Error('unreadable item');
+        return Reflect.getOwnPropertyDescriptor(['x'], property);
+      },
+    });
+    const accessorArray: unknown[] = [];
+    Object.defineProperty(accessorArray, '0', {
+      enumerable: true,
+      get: () => 'not read',
+    });
+    Object.defineProperty(accessorArray, 'length', { value: 1 });
+
+    let descriptorReads = 0;
+    const hostileObject = new Proxy(
+      { value: 'x' },
+      {
+        getOwnPropertyDescriptor: (target, property) => {
+          descriptorReads += 1;
+          if (descriptorReads > 1) throw new Error('changed descriptor');
+          return Reflect.getOwnPropertyDescriptor(target, property);
+        },
+      },
+    );
+
+    const error = new ExecutionInputError('INVALID_DATA', 'Hostile details.', {
+      hostileLength,
+      hostileElement,
+      accessorArray,
+      hostileObject,
+    });
+    expect(error.details).toEqual({
+      hostileLength: '[unreadable]',
+      hostileElement: ['[unreadable]'],
+      accessorArray: ['[unreadable]'],
+      hostileObject: { value: '[unreadable]' },
+    });
+  });
+
+  it('stabilizes an object whose prototype cannot be inspected', () => {
+    const hostile = new Proxy(
+      {},
+      {
+        getPrototypeOf: () => {
+          throw new Error('prototype trap');
+        },
+      },
+    );
+    expect(
+      new ExecutionInputError('INVALID_DATA', 'Hostile details.', {
+        hostile,
+      }).details,
+    ).toEqual({ hostile: '[unreadable]' });
+  });
+
+  it('handles absent details and both dense and sparse detail arrays', () => {
+    expect(new ExecutionInputError('INVALID_DATA', 'No details.').details).toBe(
+      undefined,
+    );
+    const sparse = new Array(1);
+    const error = new ExecutionInputError('INVALID_DATA', 'Arrays.', {
+      dense: [1],
+      sparse,
+    });
+    expect(error.details?.dense).toEqual([1]);
+    expect(error.details?.sparse).toHaveLength(1);
+    expect(Object.hasOwn(error.details?.sparse as object, '0')).toBe(false);
+  });
 });

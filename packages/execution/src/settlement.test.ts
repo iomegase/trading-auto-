@@ -208,6 +208,69 @@ describe('daily settlement artifacts', () => {
     ).toBe('101.5');
     expect(Object.values(reads).every((count) => count === 1)).toBe(true);
   });
+
+  it('maps hostile records, accessors, currencies, and instants to typed errors', () => {
+    for (const value of [null, [], new Date(0)]) {
+      expectError(
+        () =>
+          createDailySettlement(
+            value as unknown as DailySettlementInput,
+            constraints,
+          ),
+        'INVALID_EXECUTION_INPUT',
+        'input',
+      );
+    }
+    for (const [field, value] of [
+      ['observedAt', 1],
+      ['observedAt', 'invalid'],
+      ['currency', 1],
+      ['currency', 'EURO'],
+    ] as const) {
+      expectError(
+        () =>
+          createDailySettlement(
+            { ...validSettlement, [field]: value },
+            constraints,
+          ),
+        'INVALID_EXECUTION_INPUT',
+        field,
+      );
+    }
+
+    const descriptorTrap = new Proxy(validSettlement, {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectError(
+      () => createDailySettlement(descriptorTrap, constraints),
+      'INVALID_EXECUTION_INPUT',
+      'version',
+    );
+    for (const descriptor of [
+      { enumerable: false, value: validSettlement.version },
+      { enumerable: true, set: () => undefined },
+      {
+        enumerable: true,
+        get: () => {
+          throw new Error('getter trap');
+        },
+      },
+    ]) {
+      const input = { ...validSettlement } as Record<string, unknown>;
+      Object.defineProperty(input, 'version', descriptor);
+      expectError(
+        () =>
+          createDailySettlement(
+            input as unknown as DailySettlementInput,
+            constraints,
+          ),
+        'INVALID_EXECUTION_INPUT',
+        'version',
+      );
+    }
+  });
 });
 
 describe('causal settlement selection', () => {
@@ -333,6 +396,111 @@ describe('causal settlement selection', () => {
       Object.fromEntries(
         Object.keys(validSettlement).map((field) => [field, 1]),
       ),
+    );
+  });
+
+  it('bounds and validates hostile settlement series before selection', () => {
+    const base = {
+      requiredEffectiveAt: '2026-01-02T17:00:00Z',
+      decisionAt: '2026-01-02T17:05:00Z',
+      constraints,
+    } as const;
+    expectError(
+      () =>
+        selectDailySettlement({
+          ...base,
+          settlements: {} as unknown as readonly ReturnType<
+            typeof createDailySettlement
+          >[],
+        }),
+      'INVALID_DATA',
+      'settlements',
+    );
+    expectError(
+      () =>
+        selectDailySettlement({
+          ...base,
+          settlements: new Array(10_001),
+        }),
+      'INVALID_DATA',
+      'settlements',
+    );
+    expectError(
+      () =>
+        selectDailySettlement({
+          ...base,
+          settlements: new Array(1),
+        }),
+      'INVALID_DATA',
+      'settlements',
+    );
+
+    const descriptorTrap = new Proxy(
+      [createDailySettlement(validSettlement, constraints)],
+      {
+        getOwnPropertyDescriptor: () => {
+          throw new Error('descriptor trap');
+        },
+      },
+    );
+    expectError(
+      () => selectDailySettlement({ ...base, settlements: descriptorTrap }),
+      'INVALID_DATA',
+      'settlements',
+    );
+
+    for (const [descriptor, expectedField] of [
+      [{ enumerable: true, set: () => undefined }, 'settlement'],
+      [
+        {
+          enumerable: true,
+          get: () => {
+            throw new Error('element getter');
+          },
+        },
+        'settlements',
+      ],
+    ] as const) {
+      const settlements: unknown[] = [];
+      Object.defineProperty(settlements, '0', descriptor);
+      Object.defineProperty(settlements, 'length', { value: 1 });
+      expectError(
+        () =>
+          selectDailySettlement({
+            ...base,
+            settlements: settlements as readonly ReturnType<
+              typeof createDailySettlement
+            >[],
+          }),
+        'INVALID_DATA',
+        expectedField,
+      );
+    }
+  });
+
+  it('maps malformed matching settlements and absent constraints to INVALID_DATA', () => {
+    const exact = createDailySettlement(validSettlement, constraints);
+    expectError(
+      () =>
+        selectDailySettlement({
+          settlements: [{ ...exact, price: 'bad' } as typeof exact],
+          requiredEffectiveAt: exact.effectiveAt,
+          decisionAt: exact.observedAt,
+          constraints,
+        }),
+      'INVALID_DATA',
+      'settlement',
+    );
+    expectError(
+      () =>
+        selectDailySettlement({
+          settlements: [exact],
+          requiredEffectiveAt: exact.effectiveAt,
+          decisionAt: exact.observedAt,
+          constraints: undefined as unknown as typeof constraints,
+        }),
+      'INVALID_DATA',
+      'settlement',
     );
   });
 });
@@ -535,5 +703,77 @@ describe('variation margin', () => {
     expectTypeOf(result.variationMargin).toEqualTypeOf<DecimalString>();
     expectTypeOf(result.currency).toEqualTypeOf<CurrencyCode>();
     expectTypeOf(result.availableAt).toEqualTypeOf<InstantString>();
+  });
+
+  it('rejects forged position enums and limitations at the boundary', () => {
+    const current = buildPosition();
+    const settlement = createDailySettlement(validSettlement, constraints);
+    for (const [field, value, expectedField] of [
+      ['direction', 'SIDEWAYS', 'direction'],
+      ['timeframe', '4h', 'timeframe'],
+      ['executionModelVersion', 'OTHER', 'executionModelVersion'],
+      ['limitations', [], 'position.limitations'],
+    ] as const) {
+      expectError(
+        () =>
+          applyDailySettlement({
+            position: { ...current, [field]: value },
+            settlement,
+            decisionAt: settlement.observedAt,
+            currency: 'EUR',
+            monetaryValuePerPriceUnit: '5',
+            cash: '1000',
+            realizedEquity: '1000',
+          }),
+        'INVALID_EXECUTION_INPUT',
+        expectedField,
+      );
+    }
+
+    const revoked = Proxy.revocable([...current.limitations], {});
+    revoked.revoke();
+    const hostileLimitations: Array<OpenPosition['limitations']> = [
+      [
+        'WRONG',
+        ...current.limitations.slice(1),
+      ] as unknown as OpenPosition['limitations'],
+      revoked.proxy,
+      {} as unknown as OpenPosition['limitations'],
+    ];
+    for (const limitations of hostileLimitations) {
+      expectError(
+        () =>
+          applyDailySettlement({
+            position: { ...current, limitations },
+            settlement,
+            decisionAt: settlement.observedAt,
+            currency: 'EUR',
+            monetaryValuePerPriceUnit: '5',
+            cash: '1000',
+            realizedEquity: '1000',
+          }),
+        'INVALID_EXECUTION_INPUT',
+        'position.limitations',
+      );
+    }
+  });
+
+  it('rejects canonical negative zero balances', () => {
+    const current = buildPosition();
+    const settlement = createDailySettlement(validSettlement, constraints);
+    expectError(
+      () =>
+        applyDailySettlement({
+          position: current,
+          settlement,
+          decisionAt: settlement.observedAt,
+          currency: 'EUR',
+          monetaryValuePerPriceUnit: '5',
+          cash: '-0',
+          realizedEquity: '1000',
+        }),
+      'INVALID_EXECUTION_INPUT',
+      'cash',
+    );
   });
 });

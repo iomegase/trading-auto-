@@ -172,4 +172,52 @@ describe('H1 execution market-data events', () => {
 
     expectInvalid(() => createH1OpenEvent(revoked.proxy), 'input');
   });
+
+  it('rejects primitive, array, custom-prototype, and invalid-instant inputs', () => {
+    for (const value of [null, [], new Date(0)]) {
+      expectInvalid(
+        () => createH1OpenEvent(value as unknown as H1OpenEventInput),
+        'input',
+      );
+    }
+    expectInvalid(
+      () => createH1OpenEvent({ ...validOpen, openTime: 'not-an-instant' }),
+      'openTime',
+    );
+    expectInvalid(
+      () =>
+        createH1OpenEvent({
+          ...validOpen,
+          openTime: 1 as unknown as string,
+        }),
+      'openTime',
+    );
+  });
+
+  it('maps hostile field descriptors and accessors to typed errors', () => {
+    const descriptorTrap = new Proxy(validOpen, {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectInvalid(() => createH1OpenEvent(descriptorTrap), 'instrumentId');
+
+    for (const descriptor of [
+      { enumerable: true, set: () => undefined },
+      {
+        enumerable: true,
+        get: () => {
+          throw new Error('getter trap');
+        },
+      },
+      { enumerable: false, value: validOpen.instrumentId },
+    ]) {
+      const input = { ...validOpen } as Record<string, unknown>;
+      Object.defineProperty(input, 'instrumentId', descriptor);
+      expectInvalid(
+        () => createH1OpenEvent(input as unknown as H1OpenEventInput),
+        'instrumentId',
+      );
+    }
+  });
 });

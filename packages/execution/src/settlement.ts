@@ -413,7 +413,6 @@ function signedOutput(
   value: InstanceType<typeof ExecutionDecimal>,
   field: string,
 ) {
-  if (!value.isFinite()) invalid(field);
   return signedExecutionDecimal(value.toFixed(), field);
 }
 

@@ -73,6 +73,7 @@ export type EntryExecutionResult =
       type: 'ENTRY_FILLED' | 'ENTRY_REDUCED_AND_FILLED';
       intentId: string;
       occurredAt: InstantString;
+      availableAt: InstantString;
       fillPrice: DecimalString;
       quantity: DecimalString;
       reasons: readonly RiskDecisionReason[];
@@ -82,6 +83,7 @@ export type EntryExecutionResult =
       type: 'ENTRY_CANCELLED';
       intentId: string;
       occurredAt: InstantString;
+      availableAt: InstantString;
       quantity: DecimalString;
       reasons: readonly ExecutionCancellationReason[];
       riskDecision: RiskDecision | null;
@@ -114,7 +116,6 @@ const requiredRiskFields = Object.freeze([
   'instrumentId',
   'direction',
   'riskPolicyUseMode',
-  'riskPolicyUseAt',
   'signalExpiresAt',
   'datasetVersion',
   'strategyVersion',
@@ -284,6 +285,7 @@ function zero(): DecimalString {
 function cancelled(
   intent: EntryIntent,
   occurredAt: InstantString,
+  availableAt: InstantString,
   reasons: readonly ExecutionCancellationReason[],
   riskDecision: RiskDecision | null,
 ): EntryExecutionResult {
@@ -291,6 +293,7 @@ function cancelled(
     type: 'ENTRY_CANCELLED' as const,
     intentId: intent.intentId,
     occurredAt,
+    availableAt,
     quantity: zero(),
     reasons: Object.freeze([...reasons]),
     riskDecision,
@@ -303,9 +306,12 @@ function snapshotRiskInput(input: unknown): OrderRiskInput {
   for (const field of requiredRiskFields) {
     snapshot[field] = ownValue(input, field);
   }
-  for (const field of optionalRiskFields) {
-    const captured = descriptorValue(input, field, false);
-    if (captured.present) snapshot[field] = captured.value;
+  if (snapshot.riskPolicyUseMode !== 'FORWARD') {
+    snapshot.riskPolicyUseAt = ownValue(input, 'riskPolicyUseAt');
+    for (const field of optionalRiskFields) {
+      const captured = descriptorValue(input, field, false);
+      if (captured.present) snapshot[field] = captured.value;
+    }
   }
   snapshot.product = snapshotRecordFields(
     snapshot.product,
@@ -372,8 +378,14 @@ export function executeEntryAtNextOpen(
   if (compare(open.openTime, intent.signalCloseTime) <= 0) {
     invalid('openTime', open.openTime);
   }
-  if (compare(open.openTime, intent.expiresAt) >= 0) {
-    return cancelled(intent, open.openTime, ['SIGNAL_EXPIRED'], null);
+  if (compare(open.availableAt, intent.expiresAt) >= 0) {
+    return cancelled(
+      intent,
+      open.openTime,
+      open.availableAt,
+      ['SIGNAL_EXPIRED'],
+      null,
+    );
   }
 
   const fillPrice = exactFillPrice(intent.direction, open.price, adjustment);
@@ -383,7 +395,13 @@ export function executeEntryAtNextOpen(
     (intent.direction === 'LONG' && !stop.lt(fill)) ||
     (intent.direction === 'SHORT' && !stop.gt(fill))
   ) {
-    return cancelled(intent, open.openTime, ['INVALID_STOP_AT_OPEN'], null);
+    return cancelled(
+      intent,
+      open.openTime,
+      open.availableAt,
+      ['INVALID_STOP_AT_OPEN'],
+      null,
+    );
   }
 
   const riskInput = snapshotRiskInput(rawRiskInput);
@@ -425,12 +443,22 @@ export function executeEntryAtNextOpen(
     entryPrice: fillPrice,
     stopPrice: intent.stopPrice,
     requestedQuantity: intent.requestedQuantity,
-    decisionAt: open.openTime,
+    decisionAt: open.availableAt,
+    riskPolicyUseAt:
+      riskInput.riskPolicyUseMode === 'FORWARD'
+        ? open.availableAt
+        : riskInput.riskPolicyUseAt,
     signalExpiresAt,
   });
 
   if (riskDecision.status === 'REJECT') {
-    return cancelled(intent, open.openTime, riskDecision.reasons, riskDecision);
+    return cancelled(
+      intent,
+      open.openTime,
+      open.availableAt,
+      riskDecision.reasons,
+      riskDecision,
+    );
   }
   return Object.freeze({
     type:
@@ -439,6 +467,7 @@ export function executeEntryAtNextOpen(
         : ('ENTRY_REDUCED_AND_FILLED' as const),
     intentId: intent.intentId,
     occurredAt: open.openTime,
+    availableAt: open.availableAt,
     fillPrice,
     quantity: riskDecision.quantity,
     reasons: Object.freeze([...riskDecision.reasons]),

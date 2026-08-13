@@ -5,7 +5,11 @@ import {
   type DecimalString,
   type InstantString,
 } from '@trading-auto/domain';
-import type { OrderRiskInput, RiskDecisionReason } from '@trading-auto/risk';
+import {
+  RiskInputError,
+  type OrderRiskInput,
+  type RiskDecisionReason,
+} from '@trading-auto/risk';
 import {
   buildContract,
   buildOrderRiskInput,
@@ -181,6 +185,58 @@ describe('entry intents', () => {
       Object.fromEntries(Object.keys(validIntent).map((field) => [field, 1])),
     );
   });
+
+  it('rejects missing, non-enumerable, setter-only, and hostile intent fields', () => {
+    const missing = { ...validIntent } as Partial<EntryIntentInput>;
+    Reflect.deleteProperty(missing, 'intentId');
+    expectInputError(
+      () => createEntryIntent(missing as EntryIntentInput),
+      'intentId',
+    );
+
+    for (const descriptor of [
+      { enumerable: false, value: validIntent.intentId },
+      { enumerable: true, set: () => undefined },
+      {
+        enumerable: true,
+        get: () => {
+          throw new Error('hostile getter');
+        },
+      },
+    ]) {
+      const input = { ...validIntent } as Record<string, unknown>;
+      Object.defineProperty(input, 'intentId', descriptor);
+      expectInputError(
+        () => createEntryIntent(input as unknown as EntryIntentInput),
+        'intentId',
+      );
+    }
+    const descriptorTrap = new Proxy(validIntent, {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectInputError(() => createEntryIntent(descriptorTrap), 'intentId');
+  });
+
+  it('rejects malformed instant types and syntax', () => {
+    expectInputError(
+      () => createEntryIntent(null as unknown as EntryIntentInput),
+      'input',
+    );
+    expectInputError(
+      () =>
+        createEntryIntent({
+          ...validIntent,
+          signalCloseTime: 1 as unknown as string,
+        }),
+      'signalCloseTime',
+    );
+    expectInputError(
+      () => createEntryIntent({ ...validIntent, signalCloseTime: 'invalid' }),
+      'signalCloseTime',
+    );
+  });
 });
 
 describe('entry execution at the next open', () => {
@@ -277,6 +333,7 @@ describe('entry execution at the next open', () => {
       type: 'ENTRY_CANCELLED',
       intentId: validIntent.intentId,
       occurredAt: open.openTime,
+      availableAt: open.availableAt,
       quantity: '0',
       reasons: ['SIGNAL_EXPIRED'],
       riskDecision: null,
@@ -337,13 +394,16 @@ describe('entry execution at the next open', () => {
     expect(result.quantity).toBe('2');
   });
 
-  it('never reads the four template fields replaced by trusted execution data', () => {
+  it('never reads forward fields replaced by trusted execution data', () => {
     const riskInput = { ...inputAtOpen() } as Record<string, unknown>;
     for (const field of [
       'entryPrice',
       'stopPrice',
       'requestedQuantity',
       'decisionAt',
+      'riskPolicyUseAt',
+      'backtestId',
+      'runCreatedAt',
     ]) {
       Object.defineProperty(riskInput, field, {
         configurable: true,
@@ -419,15 +479,109 @@ describe('entry execution at the next open', () => {
   });
 
   it('does not allow the template to override trusted identity or versions', () => {
+    for (const [field, riskValue, openValue] of [
+      ['instrumentId', 'OTHER', undefined],
+      ['direction', 'SHORT', undefined],
+      ['strategyVersion', 'OTHER', undefined],
+      ['datasetVersion', 'OTHER', undefined],
+      ['contractId', undefined, 'OTHER'],
+      ['productCode', undefined, 'OTHER'],
+      ['signalExpiresAt', '2026-01-02T12:59:59Z', undefined],
+    ] as const) {
+      let riskInput = inputAtOpen(
+        riskValue === undefined ? {} : { [field]: riskValue },
+      );
+      if (field === 'contractId') {
+        riskInput = {
+          ...riskInput,
+          contract: { ...riskInput.contract, contractId: openValue },
+        };
+      }
+      if (field === 'productCode') {
+        riskInput = {
+          ...riskInput,
+          product: { ...riskInput.product, productCode: openValue },
+        };
+      }
+      expectInputError(
+        () =>
+          executeEntryAtNextOpen({
+            intent: createEntryIntent(validIntent),
+            open,
+            adverseEntrySlippagePriceUnits: '0',
+            riskInput,
+          }),
+        field === 'productCode' ? 'instrumentId' : field,
+      );
+    }
+  });
+
+  it('rejects open identity and chronology mismatches before risk', () => {
+    for (const [field, value, expected] of [
+      ['instrumentId', 'OTHER', 'instrumentId'],
+      ['contractId', 'OTHER', 'contractId'],
+      ['openTime', validIntent.signalCloseTime, 'openTime'],
+    ] as const) {
+      expectInputError(
+        () =>
+          executeEntryAtNextOpen({
+            intent: createEntryIntent(validIntent),
+            open: createH1OpenEvent({ ...open, [field]: value }),
+            adverseEntrySlippagePriceUnits: '0',
+            riskInput: inputAtOpen(),
+          }),
+        expected,
+      );
+    }
+  });
+
+  it('captures historical optional risk fields', () => {
+    const runCreatedAt = asInstantString('2026-01-03T12:00:00Z');
+    expect(
+      executeEntryAtNextOpen({
+        intent: createEntryIntent(validIntent),
+        open,
+        adverseEntrySlippagePriceUnits: '0',
+        riskInput: inputAtOpen({
+          riskPolicyUseMode: 'HISTORICAL_RESEARCH',
+          riskPolicyUseAt: runCreatedAt,
+          backtestId: 'BACKTEST_ENTRY',
+          runCreatedAt,
+        }),
+      }),
+    ).toMatchObject({ type: 'ENTRY_FILLED' });
+  });
+
+  it('preserves a typed risk rejection when historical backtestId is absent', () => {
+    const runCreatedAt = asInstantString('2026-01-03T12:00:00Z');
+    expect(() =>
+      executeEntryAtNextOpen({
+        intent: createEntryIntent(validIntent),
+        open,
+        adverseEntrySlippagePriceUnits: '0',
+        riskInput: inputAtOpen({
+          riskPolicyUseMode: 'HISTORICAL_RESEARCH',
+          riskPolicyUseAt: runCreatedAt,
+          runCreatedAt,
+        }),
+      }),
+    ).toThrow(RiskInputError);
+  });
+
+  it('rejects a nonpositive adjusted SHORT fill before risk', () => {
     expectInputError(
       () =>
         executeEntryAtNextOpen({
-          intent: createEntryIntent(validIntent),
+          intent: createEntryIntent({
+            ...validIntent,
+            direction: 'SHORT',
+            stopPrice: '101',
+          }),
           open,
-          adverseEntrySlippagePriceUnits: '0',
-          riskInput: inputAtOpen({ strategyVersion: 'OTHER' }),
+          adverseEntrySlippagePriceUnits: '100',
+          riskInput: inputAtOpen({ direction: 'SHORT' }),
         }),
-      'strategyVersion',
+      'fillPrice',
     );
   });
 

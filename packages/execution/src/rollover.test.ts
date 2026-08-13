@@ -417,6 +417,88 @@ describe('explicit versioned roll schedules', () => {
       'contracts',
     );
   });
+
+  it('maps malformed schedules, fields, arrays, and contract windows to typed errors', () => {
+    for (const value of [null, [], new Date(0)]) {
+      expectError(
+        () =>
+          createRollSchedule(
+            value as unknown as RollScheduleInput,
+            contracts(),
+          ),
+        'INVALID_EXECUTION_SCHEDULE',
+        'input',
+      );
+    }
+    const descriptorTrap = new Proxy(validSchedule, {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectError(
+      () => createRollSchedule(descriptorTrap, contracts()),
+      'INVALID_EXECUTION_SCHEDULE',
+      'version',
+    );
+    for (const descriptor of [
+      { enumerable: false, value: validSchedule.version },
+      { enumerable: true, set: () => undefined },
+      {
+        enumerable: true,
+        get: () => {
+          throw new Error('getter trap');
+        },
+      },
+    ]) {
+      const input = { ...validSchedule } as Record<string, unknown>;
+      Object.defineProperty(input, 'version', descriptor);
+      expectError(
+        () =>
+          createRollSchedule(
+            input as unknown as RollScheduleInput,
+            contracts(),
+          ),
+        'INVALID_EXECUTION_SCHEDULE',
+        'version',
+      );
+    }
+    for (const observedAt of [1 as unknown as string, 'invalid']) {
+      expectError(
+        () => createRollSchedule({ ...validSchedule, observedAt }, contracts()),
+        'INVALID_EXECUTION_SCHEDULE',
+        'observedAt',
+      );
+    }
+
+    expectError(
+      () =>
+        createRollSchedule(
+          validSchedule,
+          {} as unknown as readonly FuturesContract[],
+        ),
+      'INVALID_EXECUTION_SCHEDULE',
+      'contracts',
+    );
+    const contractDescriptorTrap = new Proxy([...contracts()], {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectError(
+      () => createRollSchedule(validSchedule, contractDescriptorTrap),
+      'INVALID_EXECUTION_SCHEDULE',
+      'contracts',
+    );
+    expectError(
+      () =>
+        createRollSchedule(validSchedule, [
+          { ...oldContract, lastTradeAt: oldContract.firstTradeAt },
+          nextContract,
+        ]),
+      'INVALID_EXECUTION_SCHEDULE',
+      'contracts',
+    );
+  });
 });
 
 describe('explicit rollover execution', () => {
@@ -687,5 +769,78 @@ describe('explicit rollover execution', () => {
     } finally {
       Decimal.set(previous);
     }
+  });
+
+  it('rejects forged position enums and limitations', () => {
+    const input = rolloverInput();
+    for (const [field, value, expected] of [
+      ['direction', 'SIDEWAYS', 'direction'],
+      ['timeframe', '4h', 'timeframe'],
+      ['executionModelVersion', 'OTHER', 'executionModelVersion'],
+      ['limitations', [], 'limitations'],
+    ] as const) {
+      expectError(
+        () =>
+          executeContractRollover({
+            ...input,
+            position: { ...input.position, [field]: value },
+          }),
+        'INVALID_EXECUTION_INPUT',
+        expected,
+      );
+    }
+  });
+
+  it('rejects mismatched roll identifiers and unavailable roll opens', () => {
+    const input = rolloverInput();
+    expectError(
+      () =>
+        executeContractRollover({
+          ...input,
+          roll: { ...input.roll, fromContractId: 'OTHER' },
+        }),
+      'INVALID_EXECUTION_INPUT',
+      'contractId',
+    );
+    expectError(
+      () =>
+        executeContractRollover({
+          ...input,
+          roll: {
+            ...input.roll,
+            toContractId: input.position.instrumentId,
+          },
+        }),
+      'INVALID_EXECUTION_INPUT',
+      'contractId',
+    );
+    expectError(
+      () =>
+        executeContractRollover({
+          ...input,
+          exitOpen: createH1OpenEvent({
+            ...input.exitOpen,
+            openTime: '2026-01-02T12:30:01Z',
+            availableAt: '2026-01-02T12:30:01Z',
+          }),
+          decisionAt: '2026-01-02T12:30:01Z',
+        }),
+      'INVALID_DATA',
+      'roll',
+    );
+  });
+
+  it('rejects a nonpositive adverse rollover exit fill', () => {
+    const input = rolloverInput();
+    expectError(
+      () =>
+        executeContractRollover({
+          ...input,
+          exitOpen: createH1OpenEvent({ ...input.exitOpen, price: '0.5' }),
+          adverseExitSlippagePriceUnits: '0.5',
+        }),
+      'INVALID_EXECUTION_INPUT',
+      'fillPrice',
+    );
   });
 });

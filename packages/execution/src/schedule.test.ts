@@ -208,6 +208,136 @@ describe('versioned execution schedules', () => {
     );
     expect(intervalReads).toEqual({ start: 1, end: 1 });
   });
+
+  it('maps hostile schedule records and fields to typed errors', () => {
+    for (const value of [null, [], new Date(0)]) {
+      expectExecutionError(
+        () =>
+          createExecutionSchedule(value as unknown as ExecutionScheduleInput),
+        'INVALID_EXECUTION_SCHEDULE',
+        'input',
+      );
+    }
+    const descriptorTrap = new Proxy(validSchedule, {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectExecutionError(
+      () => createExecutionSchedule(descriptorTrap),
+      'INVALID_EXECUTION_SCHEDULE',
+      'version',
+    );
+
+    for (const descriptor of [
+      { enumerable: false, value: validSchedule.version },
+      { enumerable: true, set: () => undefined },
+      {
+        enumerable: true,
+        get: () => {
+          throw new Error('getter trap');
+        },
+      },
+    ]) {
+      const input = { ...validSchedule } as Record<string, unknown>;
+      Object.defineProperty(input, 'version', descriptor);
+      expectExecutionError(
+        () =>
+          createExecutionSchedule(input as unknown as ExecutionScheduleInput),
+        'INVALID_EXECUTION_SCHEDULE',
+        'version',
+      );
+    }
+  });
+
+  it('rejects malformed instants and hostile interval arrays', () => {
+    for (const observedAt of [1 as unknown as string, 'invalid']) {
+      expectExecutionError(
+        () => createExecutionSchedule({ ...validSchedule, observedAt }),
+        'INVALID_EXECUTION_SCHEDULE',
+        'observedAt',
+      );
+    }
+    expectExecutionError(
+      () =>
+        createExecutionSchedule({
+          ...validSchedule,
+          tradableIntervals: [
+            { start: validSchedule.validFrom, end: validSchedule.validFrom },
+          ],
+        }),
+      'INVALID_EXECUTION_SCHEDULE',
+      'tradableIntervals',
+    );
+    expectExecutionError(
+      () =>
+        createExecutionSchedule({
+          ...validSchedule,
+          tradableIntervals:
+            {} as unknown as ExecutionScheduleInput['tradableIntervals'],
+        }),
+      'INVALID_EXECUTION_SCHEDULE',
+      'tradableIntervals',
+    );
+
+    const invalidLengths = [
+      new Proxy([], {
+        get: (_target, property) => (property === 'length' ? -1 : undefined),
+      }),
+      new Proxy([], {
+        get: (_target, property) => {
+          if (property === 'length') throw new Error('length trap');
+          return undefined;
+        },
+      }),
+    ];
+    for (const tradableIntervals of invalidLengths) {
+      expectExecutionError(
+        () => createExecutionSchedule({ ...validSchedule, tradableIntervals }),
+        'INVALID_EXECUTION_SCHEDULE',
+        'tradableIntervals',
+      );
+    }
+
+    const descriptorTrap = new Proxy([firstTradableInterval], {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectExecutionError(
+      () =>
+        createExecutionSchedule({
+          ...validSchedule,
+          tradableIntervals: descriptorTrap,
+        }),
+      'INVALID_EXECUTION_SCHEDULE',
+      'tradableIntervals',
+    );
+
+    for (const descriptor of [
+      { enumerable: true, set: () => undefined },
+      {
+        enumerable: true,
+        get: () => {
+          throw new Error('element getter');
+        },
+      },
+    ]) {
+      const intervals: unknown[] = [];
+      Object.defineProperty(intervals, '0', descriptor);
+      Object.defineProperty(intervals, 'length', { value: 1 });
+      expectExecutionError(
+        () =>
+          createExecutionSchedule({
+            ...validSchedule,
+            tradableIntervals:
+              intervals as ExecutionScheduleInput['tradableIntervals'],
+          }),
+        'INVALID_EXECUTION_SCHEDULE',
+        'tradableIntervals',
+      );
+    }
+  });
 });
 
 describe('causal next-tradable-open selection', () => {
@@ -368,6 +498,70 @@ describe('causal next-tradable-open selection', () => {
         }),
       'INVALID_DATA',
       'contractId',
+    );
+  });
+
+  it('rejects invalid query chronology and contract windows', () => {
+    expectExecutionError(
+      () =>
+        selectNextTradableH1Open({
+          signalCloseTime: '2026-01-02T10:00:00Z',
+          decisionAt: '2026-01-02T09:00:00Z',
+          contract: syntheticFdxsContract,
+          schedule: schedule(),
+          openEvents: [],
+        }),
+      'INVALID_DATA',
+      'decisionAt',
+    );
+    expectExecutionError(
+      () =>
+        selectNextTradableH1Open({
+          signalCloseTime: '2026-01-02T08:00:00Z',
+          decisionAt: '2026-01-02T09:00:00Z',
+          contract: {
+            ...syntheticFdxsContract,
+            lastTradeAt: syntheticFdxsContract.firstTradeAt,
+          },
+          schedule: schedule(),
+          openEvents: [],
+        }),
+      'INVALID_DATA',
+      'contract',
+    );
+  });
+
+  it('rejects malformed observable opens and wrong instruments', () => {
+    expectExecutionError(
+      () =>
+        selectNextTradableH1Open({
+          signalCloseTime: '2026-01-02T08:00:00Z',
+          decisionAt: '2026-01-02T09:00:00Z',
+          contract: syntheticFdxsContract,
+          schedule: schedule(),
+          openEvents: [
+            {
+              ...openEvent('2026-01-02T09:00:00Z'),
+              price: 'bad',
+            } as unknown as ReturnType<typeof openEvent>,
+          ],
+        }),
+      'INVALID_DATA',
+      'openEvents',
+    );
+    expectExecutionError(
+      () =>
+        selectNextTradableH1Open({
+          signalCloseTime: '2026-01-02T08:00:00Z',
+          decisionAt: '2026-01-02T09:00:00Z',
+          contract: syntheticFdxsContract,
+          schedule: schedule(),
+          openEvents: [
+            openEvent('2026-01-02T09:00:00Z', { instrumentId: 'OTHER' }),
+          ],
+        }),
+      'INVALID_DATA',
+      'instrumentId',
     );
   });
 });

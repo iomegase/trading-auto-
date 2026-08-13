@@ -36,20 +36,15 @@ function boundedCanonicalDecimal(
     invalid(field, value);
   }
 
-  const [integer, fraction = ''] = value.split('.');
+  const [integer, fraction = ''] = value.split('.') as [string, string?];
   if (
-    integer === undefined ||
     integer.length + fraction.length > MAX_DECIMAL_DIGITS ||
     fraction.length > MAX_DECIMAL_FRACTION_DIGITS
   ) {
     invalid(field, value);
   }
 
-  try {
-    return asDecimalString(value);
-  } catch {
-    invalid(field, value);
-  }
+  return asDecimalString(value);
 }
 
 export function positiveExecutionDecimal(
@@ -58,13 +53,8 @@ export function positiveExecutionDecimal(
 ): DecimalString {
   const canonical = boundedCanonicalDecimal(value, field);
 
-  let decimal: Decimal;
-  try {
-    decimal = new ExecutionDecimal(canonical);
-  } catch {
-    invalid(field, value);
-  }
-  if (!decimal.isFinite() || !decimal.gt(0)) invalid(field, value);
+  const decimal = new ExecutionDecimal(canonical);
+  if (!decimal.gt(0)) invalid(field, value);
 
   return canonical;
 }
@@ -73,15 +63,7 @@ export function nonnegativeExecutionDecimal(
   value: unknown,
   field: string,
 ): DecimalString {
-  const canonical = boundedCanonicalDecimal(value, field);
-  let decimal: Decimal;
-  try {
-    decimal = new ExecutionDecimal(canonical);
-  } catch {
-    invalid(field, value);
-  }
-  if (!decimal.isFinite() || decimal.isNegative()) invalid(field, value);
-  return canonical;
+  return boundedCanonicalDecimal(value, field);
 }
 
 export function signedExecutionDecimal(
@@ -93,13 +75,8 @@ export function signedExecutionDecimal(
     field,
     SIGNED_CANONICAL_DECIMAL,
   );
-  let decimal: Decimal;
-  try {
-    decimal = new ExecutionDecimal(canonical);
-  } catch {
-    invalid(field, value);
-  }
-  if (!decimal.isFinite() || (decimal.isZero() && canonical.startsWith('-'))) {
+  const decimal = new ExecutionDecimal(canonical);
+  if (decimal.isZero() && canonical.startsWith('-')) {
     invalid(field, value);
   }
   return canonical;

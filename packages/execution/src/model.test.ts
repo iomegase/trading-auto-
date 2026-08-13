@@ -105,4 +105,39 @@ describe('createExecutionModel', () => {
 
     expectInvalid(() => createExecutionModel(revoked.proxy), 'input');
   });
+
+  it('rejects primitive, array, and custom-prototype inputs', () => {
+    for (const value of [null, [], new Date(0)]) {
+      expectInvalid(
+        () => createExecutionModel(value as unknown as ExecutionModelInput),
+        'input',
+      );
+    }
+  });
+
+  it('maps hostile field descriptors and accessors to typed errors', () => {
+    const descriptorTrap = new Proxy(baseline, {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('descriptor trap');
+      },
+    });
+    expectInvalid(() => createExecutionModel(descriptorTrap), 'version');
+
+    for (const descriptor of [
+      { enumerable: true, set: () => undefined },
+      {
+        enumerable: true,
+        get: () => {
+          throw new Error('getter trap');
+        },
+      },
+    ]) {
+      const input = { ...baseline } as Record<string, unknown>;
+      Object.defineProperty(input, 'version', descriptor);
+      expectInvalid(
+        () => createExecutionModel(input as unknown as ExecutionModelInput),
+        'version',
+      );
+    }
+  });
 });
