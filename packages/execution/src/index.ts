@@ -42,3 +42,14 @@ export {
   type PositionH1BarResult,
   type ProcessPositionH1BarInput,
 } from './position.js';
+export {
+  applyDailySettlement,
+  createDailySettlement,
+  selectDailySettlement,
+  type ApplyDailySettlementInput,
+  type DailySettlement,
+  type DailySettlementApplied,
+  type DailySettlementConstraintsInput,
+  type DailySettlementInput,
+  type SelectDailySettlementInput,
+} from './settlement.js';

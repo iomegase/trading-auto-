@@ -4,6 +4,7 @@ import { Decimal } from 'decimal.js';
 import { ExecutionInputError } from './errors.js';
 
 const CANONICAL_DECIMAL = /^(0|[1-9]\d*)(\.\d+)?$/;
+const SIGNED_CANONICAL_DECIMAL = /^-?(0|[1-9]\d*)(\.\d+)?$/;
 const MAX_DECIMAL_DIGITS = 256;
 const MAX_DECIMAL_FRACTION_DIGITS = 128;
 
@@ -26,8 +27,12 @@ function invalid(field: string, value: unknown): never {
   );
 }
 
-function boundedCanonicalDecimal(value: unknown, field: string): DecimalString {
-  if (typeof value !== 'string' || !CANONICAL_DECIMAL.test(value)) {
+function boundedCanonicalDecimal(
+  value: unknown,
+  field: string,
+  pattern = CANONICAL_DECIMAL,
+): DecimalString {
+  if (typeof value !== 'string' || !pattern.test(value)) {
     invalid(field, value);
   }
 
@@ -76,5 +81,26 @@ export function nonnegativeExecutionDecimal(
     invalid(field, value);
   }
   if (!decimal.isFinite() || decimal.isNegative()) invalid(field, value);
+  return canonical;
+}
+
+export function signedExecutionDecimal(
+  value: unknown,
+  field: string,
+): DecimalString {
+  const canonical = boundedCanonicalDecimal(
+    value,
+    field,
+    SIGNED_CANONICAL_DECIMAL,
+  );
+  let decimal: Decimal;
+  try {
+    decimal = new ExecutionDecimal(canonical);
+  } catch {
+    invalid(field, value);
+  }
+  if (!decimal.isFinite() || (decimal.isZero() && canonical.startsWith('-'))) {
+    invalid(field, value);
+  }
   return canonical;
 }
