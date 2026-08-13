@@ -40,6 +40,7 @@ export interface EntryIntentInput {
   timeframe: string;
   direction: string;
   signalCloseTime: string;
+  signalDecisionAt: string;
   expiresAt: string;
   stopPrice: string;
   requestedQuantity: string;
@@ -56,6 +57,7 @@ export interface EntryIntent {
   readonly timeframe: '1h';
   readonly direction: EntryDirection;
   readonly signalCloseTime: InstantString;
+  readonly signalDecisionAt: InstantString;
   readonly expiresAt: InstantString;
   readonly stopPrice: DecimalString;
   readonly requestedQuantity: DecimalString;
@@ -109,6 +111,7 @@ const intentFields = Object.freeze([
   'timeframe',
   'direction',
   'signalCloseTime',
+  'signalDecisionAt',
   'expiresAt',
   'stopPrice',
   'requestedQuantity',
@@ -260,8 +263,15 @@ export function createEntryIntent(input: EntryIntentInput): EntryIntent {
     invalid('riskDecisionStatus', values.riskDecisionStatus);
   }
   const signalCloseTime = instant(values.signalCloseTime, 'signalCloseTime');
+  const signalDecisionAt = instant(values.signalDecisionAt, 'signalDecisionAt');
   const expiresAt = instant(values.expiresAt, 'expiresAt');
   if (compare(signalCloseTime, expiresAt) >= 0) invalid('expiresAt', expiresAt);
+  if (
+    compare(signalDecisionAt, signalCloseTime) < 0 ||
+    compare(signalDecisionAt, expiresAt) >= 0
+  ) {
+    invalid('signalDecisionAt', signalDecisionAt);
+  }
   const stopPrice = positiveExecutionDecimal(values.stopPrice, 'stopPrice');
   const requestedQuantity = positiveExecutionDecimal(
     values.requestedQuantity,
@@ -277,6 +287,7 @@ export function createEntryIntent(input: EntryIntentInput): EntryIntent {
     timeframe: values.timeframe,
     direction: values.direction,
     signalCloseTime,
+    signalDecisionAt,
     expiresAt,
     stopPrice,
     requestedQuantity,
@@ -384,6 +395,9 @@ export function executeEntryAtNextOpen(
   if (open.contractId !== intent.contractId)
     invalid('contractId', open.contractId);
   if (compare(open.openTime, intent.signalCloseTime) <= 0) {
+    invalid('openTime', open.openTime);
+  }
+  if (compare(open.openTime, intent.signalDecisionAt) < 0) {
     invalid('openTime', open.openTime);
   }
   if (compare(open.availableAt, intent.expiresAt) >= 0) {

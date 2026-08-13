@@ -617,6 +617,7 @@ export function executeContractRollover(
     timeframe: '1h',
     direction: current.direction,
     signalCloseTime: current.signalCloseTime,
+    signalDecisionAt: roll.rollAt,
     expiresAt: nonBlank(reentry.expiresAt, 'expiresAt'),
     stopPrice,
     requestedQuantity: nonBlank(reentry.requestedQuantity, 'requestedQuantity'),

@@ -61,6 +61,7 @@ export interface OpenPosition {
   readonly entryCostAccountCurrency: DecimalString;
   readonly tickSize: DecimalString;
   readonly signalCloseTime: InstantString;
+  readonly signalDecisionAt: InstantString;
   readonly openedAt: InstantString;
   readonly executionModelVersion: 'BAR_BASED_H1_V1';
   readonly exitPolicyVersion: string;
@@ -77,6 +78,14 @@ export interface ProcessPositionH1BarInput {
   readonly openEvent: Readonly<H1OpenEvent>;
   readonly bar: Readonly<H1ClosedBarEvent>;
   readonly currentKijun: Readonly<CurrentKijunInput> | null;
+  readonly decisionAt: string;
+  readonly adverseExitSlippagePriceUnits: string;
+}
+
+export interface ExecuteTrendExitAtNextOpenInput {
+  readonly position: Readonly<OpenPosition>;
+  readonly intent: Readonly<TrendExitIntent>;
+  readonly open: Readonly<H1OpenEvent>;
   readonly decisionAt: string;
   readonly adverseExitSlippagePriceUnits: string;
 }
@@ -112,6 +121,29 @@ export type PositionH1BarResult =
       limitations: readonly ExecutionLimitation[];
     }>;
 
+export type TrendExitIntent = Extract<
+  PositionH1BarResult,
+  { readonly type: 'TREND_EXIT_INTENT' }
+>;
+
+export interface TrendExitFilled {
+  readonly type: 'TREND_EXIT_FILLED';
+  readonly positionId: string;
+  readonly instrumentId: string;
+  readonly contractId: string;
+  readonly direction: EntryDirection;
+  readonly intentOccurredAt: InstantString;
+  readonly intentAvailableAt: InstantString;
+  readonly occurredAt: InstantString;
+  readonly availableAt: InstantString;
+  readonly referencePrice: DecimalString;
+  readonly kijunPrice: DecimalString;
+  readonly fillPrice: DecimalString;
+  readonly quantity: DecimalString;
+  readonly exitPolicyVersion: string;
+  readonly limitations: readonly ExecutionLimitation[];
+}
+
 const positionFields = Object.freeze([
   'positionId',
   'intent',
@@ -140,6 +172,7 @@ const publicPositionFields = Object.freeze([
   'entryCostAccountCurrency',
   'tickSize',
   'signalCloseTime',
+  'signalDecisionAt',
   'openedAt',
   'executionModelVersion',
   'exitPolicyVersion',
@@ -175,6 +208,19 @@ const contextFields = Object.freeze([
   'eligibilityVersion',
   'productCode',
   'contractId',
+] as const);
+
+const trendExitIntentFields = Object.freeze([
+  'type',
+  'positionId',
+  'occurredAt',
+  'availableAt',
+  'referencePrice',
+  'kijunPrice',
+  'quantity',
+  'fillModel',
+  'exitPolicyVersion',
+  'limitations',
 ] as const);
 
 function invalid(field: string, value?: unknown): never {
@@ -354,7 +400,10 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
   if (!decimalEqual(intent.stopPrice, contextStopPrice)) {
     invalid('stopPrice', context.stopPrice);
   }
-  if (compare(occurredAt, intent.signalCloseTime) <= 0) {
+  if (
+    compare(occurredAt, intent.signalCloseTime) <= 0 ||
+    compare(occurredAt, intent.signalDecisionAt) < 0
+  ) {
     invalid('occurredAt', occurredAt);
   }
 
@@ -392,6 +441,7 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
     entryCostAccountCurrency,
     tickSize,
     signalCloseTime: intent.signalCloseTime,
+    signalDecisionAt: intent.signalDecisionAt,
     openedAt: occurredAt,
     executionModelVersion: 'BAR_BASED_H1_V1',
     exitPolicyVersion,
@@ -448,7 +498,14 @@ export function snapshotOpenPosition(
   );
   const tickSize = positiveExecutionDecimal(value.tickSize, 'tickSize');
   const signalCloseTime = instant(value.signalCloseTime, 'signalCloseTime');
+  const signalDecisionAt = instant(value.signalDecisionAt, 'signalDecisionAt');
   const openedAt = instant(value.openedAt, 'openedAt');
+  if (compare(signalDecisionAt, signalCloseTime) < 0) {
+    invalid('signalDecisionAt', signalDecisionAt);
+  }
+  if (compare(openedAt, signalDecisionAt) < 0) {
+    invalid('openedAt', openedAt);
+  }
   if (compare(openedAt, signalCloseTime) <= 0) invalid('openedAt', openedAt);
 
   const tick = new ExecutionDecimal(tickSize);
@@ -487,6 +544,7 @@ export function snapshotOpenPosition(
     entryCostAccountCurrency,
     tickSize,
     signalCloseTime,
+    signalDecisionAt,
     openedAt,
   }) as Readonly<OpenPosition>;
 }
@@ -584,6 +642,34 @@ function currentKijun(
     invalid('currentKijun.computedAt', computedAt);
   }
   return Object.freeze({ price, computedAt });
+}
+
+function snapshotTrendExitIntent(input: unknown): TrendExitIntent {
+  const value = snapshotFields(input, 'intent', trendExitIntentFields);
+  if (value.type !== 'TREND_EXIT_INTENT') invalid('intent', value.type);
+  if (value.fillModel !== 'NEXT_TRADABLE_PRICE') {
+    invalid('fillModel', value.fillModel);
+  }
+  const occurredAt = instant(value.occurredAt, 'occurredAt');
+  const availableAt = instant(value.availableAt, 'availableAt');
+  if (compare(availableAt, occurredAt) < 0) {
+    invalid('availableAt', availableAt);
+  }
+  return Object.freeze({
+    type: 'TREND_EXIT_INTENT',
+    positionId: nonBlank(value.positionId, 'positionId'),
+    occurredAt,
+    availableAt,
+    referencePrice: positiveExecutionDecimal(
+      value.referencePrice,
+      'referencePrice',
+    ),
+    kijunPrice: positiveExecutionDecimal(value.kijunPrice, 'kijunPrice'),
+    quantity: positiveExecutionDecimal(value.quantity, 'quantity'),
+    fillModel: 'NEXT_TRADABLE_PRICE',
+    exitPolicyVersion: nonBlank(value.exitPolicyVersion, 'exitPolicyVersion'),
+    limitations: validatedLimitations(value.limitations),
+  });
 }
 
 export function processPositionH1Bar(
@@ -702,6 +788,89 @@ export function processPositionH1Bar(
     positionId: position.positionId,
     evaluatedAt: bar.closeTime,
     availableAt: bar.availableAt,
+    limitations: executionLimitations,
+  });
+}
+
+export function executeTrendExitAtNextOpen(
+  input: ExecuteTrendExitAtNextOpenInput,
+): Readonly<TrendExitFilled> {
+  assertPlainRecord(input, 'input');
+  const position = snapshotOpenPosition(ownValue(input, 'position'));
+  const intent = snapshotTrendExitIntent(ownValue(input, 'intent'));
+  const open = createH1OpenEvent(ownValue(input, 'open') as H1OpenEventInput);
+  const decisionAt = instant(ownValue(input, 'decisionAt'), 'decisionAt');
+  const adjustment = nonnegativeExecutionDecimal(
+    ownValue(input, 'adverseExitSlippagePriceUnits'),
+    'adverseExitSlippagePriceUnits',
+  );
+
+  if (intent.positionId !== position.positionId) {
+    invalid('positionId', intent.positionId);
+  }
+  if (!new ExecutionDecimal(intent.quantity).eq(position.quantity)) {
+    invalid('quantity', intent.quantity);
+  }
+  if (intent.exitPolicyVersion !== position.exitPolicyVersion) {
+    invalid('exitPolicyVersion', intent.exitPolicyVersion);
+  }
+  if (compare(intent.occurredAt, position.openedAt) <= 0) {
+    invalid('occurredAt', intent.occurredAt);
+  }
+  const referencePrice = new ExecutionDecimal(intent.referencePrice);
+  const kijunPrice = new ExecutionDecimal(intent.kijunPrice);
+  if (
+    (position.direction === 'LONG' && !referencePrice.lt(kijunPrice)) ||
+    (position.direction === 'SHORT' && !referencePrice.gt(kijunPrice))
+  ) {
+    invalid('referencePrice', intent.referencePrice);
+  }
+  if (open.instrumentId !== position.instrumentId) {
+    invalid('instrumentId', open.instrumentId);
+  }
+  if (open.contractId !== position.contractId) {
+    invalid('contractId', open.contractId);
+  }
+  if (
+    compare(open.openTime, intent.occurredAt) <= 0 ||
+    compare(open.openTime, intent.availableAt) < 0
+  ) {
+    invalid('openTime', open.openTime);
+  }
+  if (
+    compare(intent.availableAt, decisionAt) > 0 ||
+    compare(open.availableAt, decisionAt) > 0
+  ) {
+    invalid('decisionAt', decisionAt);
+  }
+
+  const tick = new ExecutionDecimal(position.tickSize);
+  if (!new ExecutionDecimal(intent.referencePrice).mod(tick).isZero()) {
+    invalid('referencePrice', intent.referencePrice);
+  }
+  if (!new ExecutionDecimal(open.price).mod(tick).isZero()) {
+    invalid('open.price', open.price);
+  }
+  if (!new ExecutionDecimal(adjustment).mod(tick).isZero()) {
+    invalid('adverseExitSlippagePriceUnits', adjustment);
+  }
+  const fillPrice = adjustedExitPrice(position, open.price, adjustment);
+
+  return Object.freeze({
+    type: 'TREND_EXIT_FILLED',
+    positionId: position.positionId,
+    instrumentId: position.instrumentId,
+    contractId: position.contractId,
+    direction: position.direction,
+    intentOccurredAt: intent.occurredAt,
+    intentAvailableAt: intent.availableAt,
+    occurredAt: open.openTime,
+    availableAt: open.availableAt,
+    referencePrice: intent.referencePrice,
+    kijunPrice: intent.kijunPrice,
+    fillPrice,
+    quantity: position.quantity,
+    exitPolicyVersion: position.exitPolicyVersion,
     limitations: executionLimitations,
   });
 }

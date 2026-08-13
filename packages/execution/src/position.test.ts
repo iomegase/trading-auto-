@@ -19,6 +19,7 @@ import {
   createH1OpenEvent,
   createOpenPosition,
   executeEntryAtNextOpen,
+  executeTrendExitAtNextOpen,
   ExecutionInputError,
   processPositionH1Bar,
   type EntryDirection,
@@ -50,6 +51,7 @@ function buildFilledEntry(
     timeframe: '1h',
     direction,
     signalCloseTime: '2026-01-02T09:00:00Z',
+    signalDecisionAt: '2026-01-02T09:00:00Z',
     expiresAt: '2026-01-02T13:00:00Z',
     stopPrice: isLong ? '99' : '101',
     requestedQuantity: '2',
@@ -167,6 +169,26 @@ function kijun(price = '100', computedAt = '2026-01-02T13:00:00Z') {
   return { price, computedAt };
 }
 
+function trendFixture(direction: EntryDirection = 'LONG') {
+  const current = position(direction);
+  const intent = processPositionH1Bar({
+    position: current,
+    openEvent: openEvent('100'),
+    bar: bar(
+      direction === 'LONG'
+        ? { open: '100', high: '102', low: '99.5', close: '100' }
+        : { open: '100', high: '100.5', low: '98', close: '100' },
+    ),
+    currentKijun: kijun(direction === 'LONG' ? '101' : '99'),
+    decisionAt: '2026-01-02T13:00:00Z',
+    adverseExitSlippagePriceUnits: '0.5',
+  });
+  if (intent.type !== 'TREND_EXIT_INTENT') {
+    throw new Error('Expected a trend-exit intent fixture.');
+  }
+  return { current, intent };
+}
+
 describe('open futures positions', () => {
   it('derives a complete immutable position from intent, fill, and risk context', () => {
     const input = positionInput();
@@ -190,6 +212,7 @@ describe('open futures positions', () => {
       entryCostAccountCurrency: '1.25',
       tickSize: '0.5',
       signalCloseTime: input.intent.signalCloseTime,
+      signalDecisionAt: input.intent.signalDecisionAt,
       openedAt: input.fill.occurredAt,
       executionModelVersion: EXECUTION_MODEL_VERSION,
       exitPolicyVersion: EXIT_POLICY_VERSION,
@@ -437,6 +460,17 @@ describe('open futures positions', () => {
         }),
       'occurredAt',
     );
+    expectInputError(
+      () =>
+        createOpenPosition({
+          ...input,
+          intent: {
+            ...input.intent,
+            signalDecisionAt: asInstantString('2026-01-02T12:00:01Z'),
+          },
+        }),
+      'occurredAt',
+    );
   });
 
   it('maps malformed fill and risk-context values to typed errors', () => {
@@ -636,6 +670,212 @@ describe('fixed protective stops and close-known trend exits', () => {
       );
     },
   );
+
+  it('fills a close-known LONG trend exit only at a later H1 open', () => {
+    const { current, intent } = trendFixture('LONG');
+
+    expect(
+      executeTrendExitAtNextOpen({
+        position: current,
+        intent,
+        open: openEvent('98', '2026-01-02T14:00:00Z'),
+        decisionAt: '2026-01-02T14:00:00Z',
+        adverseExitSlippagePriceUnits: '0.5',
+      }),
+    ).toEqual({
+      type: 'TREND_EXIT_FILLED',
+      positionId: current.positionId,
+      instrumentId: current.instrumentId,
+      contractId: current.contractId,
+      direction: 'LONG',
+      intentOccurredAt: '2026-01-02T13:00:00Z',
+      intentAvailableAt: '2026-01-02T13:00:00Z',
+      occurredAt: '2026-01-02T14:00:00Z',
+      availableAt: '2026-01-02T14:00:00Z',
+      referencePrice: '100',
+      kijunPrice: '101',
+      fillPrice: '97.5',
+      quantity: '2',
+      exitPolicyVersion: EXIT_POLICY_VERSION,
+      limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
+    });
+  });
+
+  it('fills a SHORT trend exit with symmetric adverse slippage', () => {
+    const { current, intent } = trendFixture('SHORT');
+    expect(
+      executeTrendExitAtNextOpen({
+        position: current,
+        intent,
+        open: openEvent('102', '2026-01-02T14:00:00Z'),
+        decisionAt: '2026-01-02T14:00:00Z',
+        adverseExitSlippagePriceUnits: '0.5',
+      }),
+    ).toMatchObject({
+      type: 'TREND_EXIT_FILLED',
+      direction: 'SHORT',
+      fillPrice: '102.5',
+    });
+  });
+
+  it('rejects forged trend intents before filling them', () => {
+    const { current, intent } = trendFixture();
+    const base = {
+      position: current,
+      intent,
+      open: openEvent('98', '2026-01-02T14:00:00Z'),
+      decisionAt: '2026-01-02T14:00:00Z',
+      adverseExitSlippagePriceUnits: '0.5',
+    } as const;
+    for (const [field, value, expected] of [
+      ['type', 'POSITION_REMAINS_OPEN', 'intent'],
+      ['positionId', 'OTHER', 'positionId'],
+      ['quantity', '1', 'quantity'],
+      ['referencePrice', 'bad', 'referencePrice'],
+      ['referencePrice', '100.25', 'referencePrice'],
+      ['kijunPrice', 'bad', 'kijunPrice'],
+      ['occurredAt', 'bad', 'occurredAt'],
+      ['availableAt', '2026-01-02T12:59:59Z', 'availableAt'],
+      ['fillModel', 'SAME_CLOSE', 'fillModel'],
+      ['exitPolicyVersion', 'OTHER', 'exitPolicyVersion'],
+      ['limitations', [], 'limitations'],
+    ] as const) {
+      expectInputError(
+        () =>
+          executeTrendExitAtNextOpen({
+            ...base,
+            intent: { ...intent, [field]: value },
+          }),
+        expected,
+      );
+    }
+  });
+
+  it.each([
+    [
+      'LONG',
+      {
+        referencePrice: asDecimalString('101'),
+        kijunPrice: asDecimalString('100'),
+      },
+      'referencePrice',
+    ],
+    [
+      'SHORT',
+      {
+        referencePrice: asDecimalString('99'),
+        kijunPrice: asDecimalString('100'),
+      },
+      'referencePrice',
+    ],
+    [
+      'LONG',
+      {
+        occurredAt: asInstantString('2026-01-02T11:00:00Z'),
+        availableAt: asInstantString('2026-01-02T11:00:00Z'),
+      },
+      'occurredAt',
+    ],
+  ] as const)(
+    'rejects a %s trend intent that cannot originate from the open position',
+    (direction, overrides, field) => {
+      const { current, intent } = trendFixture(direction);
+      expectInputError(
+        () =>
+          executeTrendExitAtNextOpen({
+            position: current,
+            intent: { ...intent, ...overrides },
+            open: openEvent('100', '2026-01-02T14:00:00Z'),
+            decisionAt: '2026-01-02T14:00:00Z',
+            adverseExitSlippagePriceUnits: '0.5',
+          }),
+        field,
+      );
+    },
+  );
+
+  it('rejects noncausal, mismatched, and off-grid trend-exit opens', () => {
+    const { current, intent } = trendFixture();
+    const base = {
+      position: current,
+      intent,
+      open: openEvent('98', '2026-01-02T14:00:00Z'),
+      decisionAt: '2026-01-02T14:00:00Z',
+      adverseExitSlippagePriceUnits: '0.5',
+    } as const;
+
+    for (const [field, value, expected] of [
+      ['instrumentId', 'OTHER', 'instrumentId'],
+      ['contractId', 'OTHER-202603', 'contractId'],
+      ['price', '98.25', 'open.price'],
+    ] as const) {
+      expectInputError(
+        () =>
+          executeTrendExitAtNextOpen({
+            ...base,
+            open: createH1OpenEvent({ ...base.open, [field]: value }),
+          }),
+        expected,
+      );
+    }
+    expectInputError(
+      () =>
+        executeTrendExitAtNextOpen({
+          ...base,
+          open: openEvent('98', intent.occurredAt),
+          decisionAt: intent.availableAt,
+        }),
+      'openTime',
+    );
+    expectInputError(
+      () =>
+        executeTrendExitAtNextOpen({
+          ...base,
+          intent: {
+            ...intent,
+            availableAt: asInstantString('2026-01-02T13:30:00Z'),
+          },
+          open: openEvent('98', '2026-01-02T13:15:00Z'),
+        }),
+      'openTime',
+    );
+    expectInputError(
+      () =>
+        executeTrendExitAtNextOpen({
+          ...base,
+          open: createH1OpenEvent({
+            ...base.open,
+            availableAt: '2026-01-02T14:00:01Z',
+          }),
+        }),
+      'decisionAt',
+    );
+    expectInputError(
+      () =>
+        executeTrendExitAtNextOpen({
+          ...base,
+          adverseExitSlippagePriceUnits: '0.25',
+        }),
+      'adverseExitSlippagePriceUnits',
+    );
+    expectInputError(
+      () =>
+        executeTrendExitAtNextOpen({
+          ...base,
+          open: openEvent('0.5', '2026-01-02T14:00:00Z'),
+        }),
+      'fillPrice',
+    );
+  });
+
+  it('maps a revoked trend-exit input to a typed error', () => {
+    const revoked = Proxy.revocable(
+      {} as Parameters<typeof executeTrendExitAtNextOpen>[0],
+      {},
+    );
+    revoked.revoke();
+    expectInputError(() => executeTrendExitAtNextOpen(revoked.proxy), 'input');
+  });
 
   it('requires a causal current Kijun only after the stop checks', () => {
     expectInputError(
@@ -859,6 +1099,9 @@ describe('fixed protective stops and close-known trend exits', () => {
       ['accountingBasisPrice', '100.25', 'accountingBasisPrice'],
       ['protectiveStopPrice', '99.25', 'protectiveStopPrice'],
       ['protectiveStopPrice', '101', 'protectiveStopPrice'],
+      ['signalDecisionAt', 'invalid', 'signalDecisionAt'],
+      ['signalDecisionAt', '2026-01-02T08:59:59Z', 'signalDecisionAt'],
+      ['signalDecisionAt', '2026-01-02T12:00:01Z', 'openedAt'],
       ['openedAt', current.signalCloseTime, 'openedAt'],
     ] as const) {
       expectInputError(

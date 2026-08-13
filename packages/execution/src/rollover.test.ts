@@ -97,6 +97,7 @@ function oldPosition(direction: EntryDirection = 'LONG'): OpenPosition {
     timeframe: '1h',
     direction,
     signalCloseTime: '2026-01-02T09:00:00Z',
+    signalDecisionAt: '2026-01-02T09:00:00Z',
     expiresAt: '2026-01-02T13:00:00Z',
     stopPrice: direction === 'LONG' ? '99' : '101',
     requestedQuantity: '2',

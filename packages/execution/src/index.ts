@@ -34,13 +34,17 @@ export {
 } from './entry.js';
 export {
   createOpenPosition,
+  executeTrendExitAtNextOpen,
   processPositionH1Bar,
   type CurrentKijunInput,
+  type ExecuteTrendExitAtNextOpenInput,
   type ExecutionLimitation,
   type OpenPosition,
   type OpenPositionInput,
   type PositionH1BarResult,
   type ProcessPositionH1BarInput,
+  type TrendExitFilled,
+  type TrendExitIntent,
 } from './position.js';
 export {
   applyDailySettlement,

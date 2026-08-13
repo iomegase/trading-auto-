@@ -35,6 +35,7 @@ const validIntent: EntryIntentInput = {
   timeframe: '1h',
   direction: 'LONG',
   signalCloseTime: '2026-01-02T10:00:00+01:00',
+  signalDecisionAt: '2026-01-02T09:00:00Z',
   expiresAt: '2026-01-02T13:00:00Z',
   stopPrice: '99',
   requestedQuantity: '2',
@@ -136,6 +137,25 @@ describe('entry intents', () => {
           expiresAt: validIntent.signalCloseTime,
         }),
       'expiresAt',
+    );
+  });
+
+  it('requires the signal decision between its close and expiry', () => {
+    expectInputError(
+      () =>
+        createEntryIntent({
+          ...validIntent,
+          signalDecisionAt: '2026-01-02T08:59:59.999999999Z',
+        }),
+      'signalDecisionAt',
+    );
+    expectInputError(
+      () =>
+        createEntryIntent({
+          ...validIntent,
+          signalDecisionAt: validIntent.expiresAt,
+        }),
+      'signalDecisionAt',
     );
   });
 
@@ -351,6 +371,22 @@ describe('entry execution at the next open', () => {
       riskDecision: null,
       limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
     });
+  });
+
+  it('rejects an open that occurred before the signal decision was available', () => {
+    expectInputError(
+      () =>
+        executeEntryAtNextOpen({
+          intent: createEntryIntent({
+            ...validIntent,
+            signalDecisionAt: '2026-01-02T12:00:00.000000001Z',
+          }),
+          open,
+          adverseEntrySlippagePriceUnits: '0',
+          riskInput: inputAtOpen(),
+        }),
+      'openTime',
+    );
   });
 
   it.each([
