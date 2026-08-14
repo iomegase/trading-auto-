@@ -101,11 +101,14 @@ décimales canoniques. Les calculs utilisent un clone privé et borné de
 Les entrées runtime forgées, getters hostiles, proxies révoqués, séries creuses,
 objets hérités et valeurs hors bornes sont rejetés par des erreurs typées.
 
-L'API publique compilée expose uniquement les factories et transitions stables
-du modèle, des événements H1, schedules, entrées, positions, settlements et
-rollovers. Les helpers décimaux internes et builders de tests restent privés.
+L'API publique compilée expose uniquement `ExecutionInputError`, son type de
+code public `ExecutionInputErrorCode`, ainsi que les factories et transitions
+stables du modèle, des événements H1, schedules, entrées, positions,
+settlements et rollovers. `ExecutionInputErrorCode` est un export TypeScript
+sans valeur runtime. Les helpers décimaux internes et builders de tests restent
+privés.
 
-## Commandes de vérification
+## Critères et commandes de validation
 
 La gate locale de la milestone est :
 
