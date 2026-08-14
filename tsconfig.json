@@ -7,6 +7,7 @@
     { "path": "./packages/strategy-ichimoku" },
     { "path": "./packages/risk" },
     { "path": "./packages/execution" },
+    { "path": "./packages/backtester" },
     { "path": "./packages/test-helpers" }
   ]
 }
