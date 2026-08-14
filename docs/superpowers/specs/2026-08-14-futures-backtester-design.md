@@ -1,6 +1,6 @@
 # Sequential Futures Backtester Design
 
-Status: DRAFT_FOR_REVIEW
+Status: APPROVED_FOR_PLANNING
 
 Date: 2026-08-14
 
