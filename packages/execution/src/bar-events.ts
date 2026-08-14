@@ -8,6 +8,8 @@ import { Temporal } from '@js-temporal/polyfill';
 import { ExecutionDecimal, positiveExecutionDecimal } from './decimal.js';
 import { ExecutionInputError } from './errors.js';
 
+const HOUR_IN_NANOSECONDS = 3_600_000_000_000n;
+
 export interface H1OpenEventInput {
   instrumentId: string;
   contractId: string;
@@ -154,7 +156,13 @@ export function createH1ClosedBarEvent(
   const low = positiveExecutionDecimal(ownValue(input, 'low'), 'low');
   const close = positiveExecutionDecimal(ownValue(input, 'close'), 'close');
 
-  if (compare(closeTime, openTime) <= 0) invalid('closeTime', closeTime);
+  if (
+    Temporal.Instant.from(closeTime).epochNanoseconds -
+      Temporal.Instant.from(openTime).epochNanoseconds !==
+    HOUR_IN_NANOSECONDS
+  ) {
+    invalid('closeTime', closeTime);
+  }
   if (compare(availableAt, closeTime) < 0) invalid('availableAt', availableAt);
 
   const openDecimal = new ExecutionDecimal(open);

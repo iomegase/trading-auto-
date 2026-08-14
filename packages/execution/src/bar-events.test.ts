@@ -96,13 +96,13 @@ describe('H1 execution market-data events', () => {
     );
   });
 
-  it('requires a positive-duration H1 bar', () => {
+  it.each([
+    ['zero', validClosed.openTime],
+    ['15-minute', '2026-01-02T10:15:00+01:00'],
+    ['four-hour', '2026-01-02T14:00:00+01:00'],
+  ] as const)('rejects a %s duration for an H1 bar', (_duration, closeTime) => {
     expectInvalid(
-      () =>
-        createH1ClosedBarEvent({
-          ...validClosed,
-          closeTime: validClosed.openTime,
-        }),
+      () => createH1ClosedBarEvent({ ...validClosed, closeTime }),
       'closeTime',
     );
   });

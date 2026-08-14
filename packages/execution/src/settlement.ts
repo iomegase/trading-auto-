@@ -398,6 +398,12 @@ export function applyDailySettlement(
   if (compare(settlement.effectiveAt, current.openedAt) <= 0) {
     invalid('effectiveAt', settlement.effectiveAt);
   }
+  if (
+    current.lastSettlementEffectiveAt !== null &&
+    compare(settlement.effectiveAt, current.lastSettlementEffectiveAt) <= 0
+  ) {
+    invalid('effectiveAt', settlement.effectiveAt);
+  }
 
   const basis = new ExecutionDecimal(current.accountingBasisPrice);
   const settled = new ExecutionDecimal(settlement.price);
@@ -418,6 +424,7 @@ export function applyDailySettlement(
   const updatedPosition = Object.freeze({
     ...current,
     accountingBasisPrice: settlement.price,
+    lastSettlementEffectiveAt: settlement.effectiveAt,
   });
 
   return Object.freeze({

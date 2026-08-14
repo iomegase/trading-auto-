@@ -32,11 +32,12 @@ export function buildExecutionOpen(
   openTime: string,
   overrides: Partial<H1OpenEventInput> = {},
 ) {
+  const resolvedOpenTime = overrides.openTime ?? openTime;
   return createH1OpenEvent({
     instrumentId: product.productCode,
     contractId: contract.contractId,
-    openTime,
-    availableAt: openTime,
+    openTime: resolvedOpenTime,
+    availableAt: overrides.availableAt ?? resolvedOpenTime,
     price: '100',
     ...overrides,
   });

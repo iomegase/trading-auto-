@@ -319,7 +319,7 @@ function cancelled(
   });
 }
 
-function snapshotRiskInput(input: unknown): OrderRiskInput {
+export function snapshotOrderRiskInput(input: unknown): OrderRiskInput {
   assertPlainRecord(input, 'riskInput');
   const snapshot: Record<string, unknown> = {};
   for (const field of requiredRiskFields) {
@@ -426,7 +426,7 @@ export function executeEntryAtNextOpen(
     );
   }
 
-  const riskInput = snapshotRiskInput(rawRiskInput);
+  const riskInput = snapshotOrderRiskInput(rawRiskInput);
   if (riskInput.instrumentId !== intent.instrumentId) {
     invalid('instrumentId', riskInput.instrumentId);
   }

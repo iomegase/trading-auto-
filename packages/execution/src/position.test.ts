@@ -12,6 +12,7 @@ import {
   buildPortfolio,
   buildProduct,
 } from '../../risk/test-helpers/builders.js';
+import { buildExecutionSchedule } from '../test-helpers/builders.js';
 
 import {
   createEntryIntent,
@@ -37,6 +38,9 @@ type FilledEntry = Extract<
 
 const EXECUTION_MODEL_VERSION = 'BAR_BASED_H1_V1' as const;
 const EXIT_POLICY_VERSION = 'ICHIMOKU_KIJUN_EXIT_V1';
+const trendProduct = buildProduct({ tickSize: '0.5', tickValue: '0.5' });
+const trendContract = buildContract(trendProduct);
+const trendSchedule = buildExecutionSchedule(trendContract);
 
 function buildFilledEntry(
   direction: EntryDirection = 'LONG',
@@ -189,6 +193,16 @@ function trendFixture(direction: EntryDirection = 'LONG') {
   return { current, intent };
 }
 
+function trendExecutionEvidence(
+  openEvents: readonly ReturnType<typeof openEvent>[],
+) {
+  return {
+    contract: trendContract,
+    schedule: trendSchedule,
+    openEvents,
+  } as const;
+}
+
 describe('open futures positions', () => {
   it('derives a complete immutable position from intent, fill, and risk context', () => {
     const input = positionInput();
@@ -214,6 +228,7 @@ describe('open futures positions', () => {
       signalCloseTime: input.intent.signalCloseTime,
       signalDecisionAt: input.intent.signalDecisionAt,
       openedAt: input.fill.occurredAt,
+      lastSettlementEffectiveAt: null,
       executionModelVersion: EXECUTION_MODEL_VERSION,
       exitPolicyVersion: EXIT_POLICY_VERSION,
       limitations: ['NO_INTRABAR_PATH', 'NO_PARTIAL_FILLS', 'NO_ORDER_BOOK'],
@@ -673,14 +688,16 @@ describe('fixed protective stops and close-known trend exits', () => {
 
   it('fills a close-known LONG trend exit only at a later H1 open', () => {
     const { current, intent } = trendFixture('LONG');
+    const nextOpen = openEvent('98', '2026-01-02T14:00:00Z');
 
     expect(
       executeTrendExitAtNextOpen({
         position: current,
         intent,
-        open: openEvent('98', '2026-01-02T14:00:00Z'),
+        open: nextOpen,
         decisionAt: '2026-01-02T14:00:00Z',
         adverseExitSlippagePriceUnits: '0.5',
+        ...trendExecutionEvidence([nextOpen]),
       }),
     ).toEqual({
       type: 'TREND_EXIT_FILLED',
@@ -703,13 +720,15 @@ describe('fixed protective stops and close-known trend exits', () => {
 
   it('fills a SHORT trend exit with symmetric adverse slippage', () => {
     const { current, intent } = trendFixture('SHORT');
+    const nextOpen = openEvent('102', '2026-01-02T14:00:00Z');
     expect(
       executeTrendExitAtNextOpen({
         position: current,
         intent,
-        open: openEvent('102', '2026-01-02T14:00:00Z'),
+        open: nextOpen,
         decisionAt: '2026-01-02T14:00:00Z',
         adverseExitSlippagePriceUnits: '0.5',
+        ...trendExecutionEvidence([nextOpen]),
       }),
     ).toMatchObject({
       type: 'TREND_EXIT_FILLED',
@@ -718,14 +737,36 @@ describe('fixed protective stops and close-known trend exits', () => {
     });
   });
 
+  it('selects the first tradable open after a delayed trend intent is available', () => {
+    const { current, intent } = trendFixture('LONG');
+    const delayedIntent = {
+      ...intent,
+      availableAt: asInstantString('2026-01-02T13:30:00Z'),
+    };
+    const nextOpen = openEvent('98', '2026-01-02T14:00:00Z');
+
+    expect(
+      executeTrendExitAtNextOpen({
+        position: current,
+        intent: delayedIntent,
+        open: nextOpen,
+        decisionAt: nextOpen.availableAt,
+        adverseExitSlippagePriceUnits: '0.5',
+        ...trendExecutionEvidence([nextOpen]),
+      }).occurredAt,
+    ).toBe(nextOpen.openTime);
+  });
+
   it('rejects forged trend intents before filling them', () => {
     const { current, intent } = trendFixture();
+    const nextOpen = openEvent('98', '2026-01-02T14:00:00Z');
     const base = {
       position: current,
       intent,
-      open: openEvent('98', '2026-01-02T14:00:00Z'),
+      open: nextOpen,
       decisionAt: '2026-01-02T14:00:00Z',
       adverseExitSlippagePriceUnits: '0.5',
+      ...trendExecutionEvidence([nextOpen]),
     } as const;
     for (const [field, value, expected] of [
       ['type', 'POSITION_REMAINS_OPEN', 'intent'],
@@ -780,14 +821,16 @@ describe('fixed protective stops and close-known trend exits', () => {
     'rejects a %s trend intent that cannot originate from the open position',
     (direction, overrides, field) => {
       const { current, intent } = trendFixture(direction);
+      const nextOpen = openEvent('100', '2026-01-02T14:00:00Z');
       expectInputError(
         () =>
           executeTrendExitAtNextOpen({
             position: current,
             intent: { ...intent, ...overrides },
-            open: openEvent('100', '2026-01-02T14:00:00Z'),
+            open: nextOpen,
             decisionAt: '2026-01-02T14:00:00Z',
             adverseExitSlippagePriceUnits: '0.5',
+            ...trendExecutionEvidence([nextOpen]),
           }),
         field,
       );
@@ -796,12 +839,14 @@ describe('fixed protective stops and close-known trend exits', () => {
 
   it('rejects noncausal, mismatched, and off-grid trend-exit opens', () => {
     const { current, intent } = trendFixture();
+    const nextOpen = openEvent('98', '2026-01-02T14:00:00Z');
     const base = {
       position: current,
       intent,
-      open: openEvent('98', '2026-01-02T14:00:00Z'),
+      open: nextOpen,
       decisionAt: '2026-01-02T14:00:00Z',
       adverseExitSlippagePriceUnits: '0.5',
+      ...trendExecutionEvidence([nextOpen]),
     } as const;
 
     for (const [field, value, expected] of [
@@ -865,6 +910,25 @@ describe('fixed protective stops and close-known trend exits', () => {
           open: openEvent('0.5', '2026-01-02T14:00:00Z'),
         }),
       'fillPrice',
+    );
+  });
+
+  it('rejects a later open when an earlier tradable H1 open exists', () => {
+    const { current, intent } = trendFixture();
+    const earliest = openEvent('98', '2026-01-02T14:00:00Z');
+    const later = openEvent('97', '2026-01-02T15:00:00Z');
+
+    expectInputError(
+      () =>
+        executeTrendExitAtNextOpen({
+          position: current,
+          intent,
+          open: later,
+          decisionAt: later.availableAt,
+          adverseExitSlippagePriceUnits: '0.5',
+          ...trendExecutionEvidence([earliest, later]),
+        }),
+      'openTime',
     );
   });
 
@@ -1103,6 +1167,11 @@ describe('fixed protective stops and close-known trend exits', () => {
       ['signalDecisionAt', '2026-01-02T08:59:59Z', 'signalDecisionAt'],
       ['signalDecisionAt', '2026-01-02T12:00:01Z', 'openedAt'],
       ['openedAt', current.signalCloseTime, 'openedAt'],
+      [
+        'lastSettlementEffectiveAt',
+        current.openedAt,
+        'lastSettlementEffectiveAt',
+      ],
     ] as const) {
       expectInputError(
         () =>
@@ -1147,7 +1216,16 @@ describe('fixed protective stops and close-known trend exits', () => {
           [field]: value,
         });
       } else {
-        next.bar = createH1ClosedBarEvent({ ...base.bar, [field]: value });
+        next.bar = createH1ClosedBarEvent({
+          ...base.bar,
+          ...(field === 'openTime'
+            ? {
+                openTime: value,
+                closeTime: '2026-01-02T13:00:01Z',
+                availableAt: '2026-01-02T13:00:01Z',
+              }
+            : { [field]: value }),
+        });
       }
       expectInputError(() => processPositionH1Bar(next), expected);
     }

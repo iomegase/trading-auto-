@@ -647,6 +647,47 @@ describe('variation margin', () => {
     ).toBe('5');
   });
 
+  it('rejects replayed and stale settlements after the last applied cursor', () => {
+    const current = buildPosition('LONG');
+    const first = createDailySettlement(validSettlement, constraints);
+    const applied = applyDailySettlement({
+      position: current,
+      settlement: first,
+      decisionAt: first.observedAt,
+      currency: 'EUR',
+      monetaryValuePerPriceUnit: '5',
+      cash: '1000',
+      realizedEquity: '1000',
+    });
+
+    expect(applied.position.lastSettlementEffectiveAt).toBe(first.effectiveAt);
+    for (const effectiveAt of [first.effectiveAt, '2026-01-02T16:00:00Z']) {
+      const replayed = createDailySettlement(
+        {
+          ...validSettlement,
+          version: `REPLAY-${effectiveAt}`,
+          effectiveAt,
+          observedAt: '2026-01-02T17:10:00Z',
+        },
+        constraints,
+      );
+      expectError(
+        () =>
+          applyDailySettlement({
+            position: applied.position,
+            settlement: replayed,
+            decisionAt: replayed.observedAt,
+            currency: 'EUR',
+            monetaryValuePerPriceUnit: '5',
+            cash: applied.cashAfter,
+            realizedEquity: applied.realizedEquityAfter,
+          }),
+        'INVALID_EXECUTION_INPUT',
+        'effectiveAt',
+      );
+    }
+  });
+
   it.each([
     ['contractId', 'OTHER'],
     ['currency', 'USD'],

@@ -18,24 +18,28 @@ d'exécution réelle.
 - Les événements H1 distinguent l'instant économique `occurredAt` de l'instant
   causal `availableAt`. Une ouverture n'est jamais utilisée avant sa
   disponibilité, même si son prix de marché appartient à un instant antérieur.
+  Une barre fermée H1 couvre exactement une heure.
 - Les schedules immuables décrivent les intervalles tradables, les pauses de
   maintenance et les fenêtres de contrats en UTC. Le simulateur n'infère aucun
   jour férié ni règle DST depuis le calendrier civil.
 - Une intention conserve la disponibilité de la décision du signal, ne peut
   être exécutée avant elle, attend le prochain open H1 négociable et revalide
   alors l'intégralité du risque avec le prix et les snapshots causaux de cet
-  open. Le résultat est `FILLED`,
-  `REDUCED_AND_FILLED` ou `CANCELLED`.
+  open. Le résultat est `ENTRY_FILLED`, `ENTRY_REDUCED_AND_FILLED` ou
+  `ENTRY_CANCELLED`.
 - Une position conserve un stop protecteur fixe. Un gap au-delà du stop utilise
   le prix disponible défavorable ; un stop touché intrabar précède toute sortie
   de tendance connue seulement à la clôture. L'intention de sortie est ensuite
-  validée et remplie à un open H1 ultérieur avec slippage adverse.
+  validée et remplie au premier open H1 ultérieur que le schedule versionné
+  déclare négociable, avec slippage adverse.
 - Les settlements quotidiens officiels appliquent la variation margin,
   actualisent le cash et la base comptable, mais préservent le prix d'entrée
-  économique destiné aux métriques du trade.
+  économique destiné aux métriques du trade. La position conserve le dernier
+  instant de settlement appliqué et refuse tout replay ou settlement antérieur.
 - Le rollover ferme explicitement le contrat expirant, comptabilise son P&L,
   ses coûts et son slippage, construit un nouveau stop versionné, puis relance
-  le moteur de risque avant toute réentrée sur le contrat daté suivant.
+  le moteur de risque avant toute réentrée sur le contrat daté suivant. Le
+  contrat cible doit déjà être actif à l'instant économique du roll.
 
 ## Causalité et disponibilité
 
@@ -101,7 +105,7 @@ L'API publique compilée expose uniquement les factories et transitions stables
 du modèle, des événements H1, schedules, entrées, positions, settlements et
 rollovers. Les helpers décimaux internes et builders de tests restent privés.
 
-## Commandes de vérification et décomptes observés
+## Commandes de vérification
 
 La gate locale de la milestone est :
 
@@ -114,13 +118,12 @@ pnpm audit --prod
 git diff --check
 ```
 
-Au 13 août 2026, la suite `@trading-auto/execution` exécute 217 tests et couvre
-100 % des statements, branches, fonctions et lignes du code de production du
-package. La gate globale exécute 32 fichiers et 1 025 tests. Les résultats
-locaux de formatage, ESLint, typage TypeScript strict, tests Vitest, compilation,
-couverture et inspection de la frontière publique réussissent. L'audit réseau
-`pnpm audit --prod` ne signale aucune vulnérabilité connue dans les dépendances
-de production au moment de cette vérification.
+La suite `@trading-auto/execution` doit couvrir 100 % des statements, branches,
+fonctions et lignes du code de production du package. Les résultats locaux de
+formatage, ESLint, typage TypeScript strict, tests Vitest, compilation,
+couverture et inspection de la frontière publique doivent réussir. L'audit
+réseau `pnpm audit --prod` ne doit signaler aucune vulnérabilité connue dans les
+dépendances de production au moment de la vérification.
 
 ## Différé à 2C
 

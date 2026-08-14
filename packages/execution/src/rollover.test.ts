@@ -528,6 +528,46 @@ describe('explicit versioned roll schedules', () => {
 });
 
 describe('explicit rollover execution', () => {
+  it('rejects a target contract inactive at the economic roll instant', () => {
+    const input = rolloverInput();
+    const decisionAt = asInstantString('2026-01-02T12:30:01Z');
+    const notYetActive = createFuturesContract(
+      {
+        contractId: nextContract.contractId,
+        productCode: nextContract.productCode,
+        firstTradeAt: '2026-01-02T12:30:00.500Z',
+        lastTradeAt: nextContract.lastTradeAt,
+        expiryAt: nextContract.expiryAt,
+        settlementType: nextContract.settlementType,
+      },
+      product,
+    );
+    const delayedOpen = createH1OpenEvent({
+      ...input.reentry.open,
+      availableAt: decisionAt,
+    });
+
+    expectError(
+      () =>
+        executeContractRollover({
+          ...input,
+          decisionAt,
+          reentry: {
+            ...input.reentry,
+            open: delayedOpen,
+            riskInput: {
+              ...input.reentry.riskInput,
+              contract: notYetActive,
+              decisionAt,
+              riskPolicyUseAt: decisionAt,
+            },
+          },
+        }),
+      'INVALID_EXECUTION_INPUT',
+      'contract',
+    );
+  });
+
   it('closes the old contract and opens a distinct approved new position', () => {
     const input = rolloverInput('LONG');
     const oldBefore = structuredClone(input.position);

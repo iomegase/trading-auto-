@@ -21,6 +21,7 @@ import {
 import {
   createEntryIntent,
   executeEntryAtNextOpen,
+  snapshotOrderRiskInput,
   type EntryExecutionResult,
 } from './entry.js';
 import { ExecutionInputError } from './errors.js';
@@ -585,6 +586,18 @@ export function executeContractRollover(
     'reentry',
     reentryFields,
   );
+  const riskInput = snapshotOrderRiskInput(reentry.riskInput);
+  const targetContract = riskInput.contract;
+  const targetFirstTradeAt = instant(targetContract.firstTradeAt, 'contract');
+  const targetLastTradeAt = instant(targetContract.lastTradeAt, 'contract');
+  if (
+    targetContract.contractId !== roll.toContractId ||
+    targetContract.productCode !== current.instrumentId ||
+    compare(targetFirstTradeAt, roll.rollAt) > 0 ||
+    compare(roll.rollAt, targetLastTradeAt) >= 0
+  ) {
+    invalid('contract', targetContract.contractId);
+  }
   const stopPrice = positiveExecutionDecimal(reentry.stopPrice, 'stopPrice');
   const stopPolicyVersion = nonBlank(
     reentry.stopPolicyVersion,
@@ -631,7 +644,7 @@ export function executeContractRollover(
       reentry.adverseEntrySlippagePriceUnits,
       'adverseEntrySlippagePriceUnits',
     ),
-    riskInput: reentry.riskInput as OrderRiskInput,
+    riskInput,
   });
   if (entryResult.type === 'ENTRY_CANCELLED') {
     return Object.freeze({

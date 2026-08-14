@@ -29,6 +29,18 @@ import {
 } from './index.js';
 
 describe('Milestone 2B causal-prefix invariance', () => {
+  it('derives default availability from an overridden open time', () => {
+    const open = buildExecutionOpen(
+      syntheticFdxsProduct,
+      syntheticFdxsContract,
+      '2026-01-02T10:00:00Z',
+      { openTime: '2026-01-02T11:00:00Z' },
+    );
+
+    expect(open.openTime).toBe('2026-01-02T11:00:00Z');
+    expect(open.availableAt).toBe(open.openTime);
+  });
+
   it('emits the same selected open when later observable opens are appended', () => {
     const schedule = buildExecutionSchedule(syntheticFdxsContract);
     const causalOpen = buildExecutionOpen(

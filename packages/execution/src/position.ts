@@ -1,6 +1,7 @@
 import {
   asInstantString,
   type DecimalString,
+  type FuturesContract,
   type InstantString,
 } from '@trading-auto/domain';
 import { Temporal } from '@js-temporal/polyfill';
@@ -30,6 +31,10 @@ import {
   executionLimitations,
   type ExecutionLimitation,
 } from './limitations.js';
+import {
+  selectNextTradableH1Open,
+  type ExecutionSchedule,
+} from './schedule.js';
 
 export type { ExecutionLimitation } from './limitations.js';
 
@@ -63,6 +68,7 @@ export interface OpenPosition {
   readonly signalCloseTime: InstantString;
   readonly signalDecisionAt: InstantString;
   readonly openedAt: InstantString;
+  readonly lastSettlementEffectiveAt: InstantString | null;
   readonly executionModelVersion: 'BAR_BASED_H1_V1';
   readonly exitPolicyVersion: string;
   readonly limitations: readonly ExecutionLimitation[];
@@ -86,6 +92,9 @@ export interface ExecuteTrendExitAtNextOpenInput {
   readonly position: Readonly<OpenPosition>;
   readonly intent: Readonly<TrendExitIntent>;
   readonly open: Readonly<H1OpenEvent>;
+  readonly contract: Readonly<FuturesContract>;
+  readonly schedule: Readonly<ExecutionSchedule>;
+  readonly openEvents: readonly Readonly<H1OpenEvent>[];
   readonly decisionAt: string;
   readonly adverseExitSlippagePriceUnits: string;
 }
@@ -174,6 +183,7 @@ const publicPositionFields = Object.freeze([
   'signalCloseTime',
   'signalDecisionAt',
   'openedAt',
+  'lastSettlementEffectiveAt',
   'executionModelVersion',
   'exitPolicyVersion',
   'limitations',
@@ -443,6 +453,7 @@ export function createOpenPosition(input: OpenPositionInput): OpenPosition {
     signalCloseTime: intent.signalCloseTime,
     signalDecisionAt: intent.signalDecisionAt,
     openedAt: occurredAt,
+    lastSettlementEffectiveAt: null,
     executionModelVersion: 'BAR_BASED_H1_V1',
     exitPolicyVersion,
     limitations: executionLimitations,
@@ -500,6 +511,10 @@ export function snapshotOpenPosition(
   const signalCloseTime = instant(value.signalCloseTime, 'signalCloseTime');
   const signalDecisionAt = instant(value.signalDecisionAt, 'signalDecisionAt');
   const openedAt = instant(value.openedAt, 'openedAt');
+  const lastSettlementEffectiveAt =
+    value.lastSettlementEffectiveAt === null
+      ? null
+      : instant(value.lastSettlementEffectiveAt, 'lastSettlementEffectiveAt');
   if (compare(signalDecisionAt, signalCloseTime) < 0) {
     invalid('signalDecisionAt', signalDecisionAt);
   }
@@ -507,6 +522,12 @@ export function snapshotOpenPosition(
     invalid('openedAt', openedAt);
   }
   if (compare(openedAt, signalCloseTime) <= 0) invalid('openedAt', openedAt);
+  if (
+    lastSettlementEffectiveAt !== null &&
+    compare(lastSettlementEffectiveAt, openedAt) <= 0
+  ) {
+    invalid('lastSettlementEffectiveAt', lastSettlementEffectiveAt);
+  }
 
   const tick = new ExecutionDecimal(tickSize);
   for (const [field, price] of [
@@ -546,6 +567,7 @@ export function snapshotOpenPosition(
     signalCloseTime,
     signalDecisionAt,
     openedAt,
+    lastSettlementEffectiveAt,
   }) as Readonly<OpenPosition>;
 }
 
@@ -855,6 +877,27 @@ export function executeTrendExitAtNextOpen(
     invalid('adverseExitSlippagePriceUnits', adjustment);
   }
   const fillPrice = adjustedExitPrice(position, open.price, adjustment);
+
+  const nextOpen = selectNextTradableH1Open({
+    signalCloseTime:
+      compare(intent.availableAt, intent.occurredAt) > 0
+        ? intent.availableAt
+        : intent.occurredAt,
+    decisionAt,
+    contract: ownValue(input, 'contract') as FuturesContract,
+    schedule: ownValue(input, 'schedule') as ExecutionSchedule,
+    openEvents: ownValue(input, 'openEvents') as readonly H1OpenEvent[],
+  });
+  if (
+    nextOpen === null ||
+    nextOpen.instrumentId !== open.instrumentId ||
+    nextOpen.contractId !== open.contractId ||
+    compare(nextOpen.openTime, open.openTime) !== 0 ||
+    compare(nextOpen.availableAt, open.availableAt) !== 0 ||
+    !new ExecutionDecimal(nextOpen.price).eq(open.price)
+  ) {
+    invalid('openTime', open.openTime);
+  }
 
   return Object.freeze({
     type: 'TREND_EXIT_FILLED',
