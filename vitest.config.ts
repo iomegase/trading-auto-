@@ -13,6 +13,7 @@ export default defineConfig({
         './packages/strategy-ichimoku/src/index.ts',
       ),
       '@trading-auto/risk': source('./packages/risk/src/index.ts'),
+      '@trading-auto/execution': source('./packages/execution/src/index.ts'),
       '@trading-auto/test-helpers': source(
         './packages/test-helpers/src/index.ts',
       ),

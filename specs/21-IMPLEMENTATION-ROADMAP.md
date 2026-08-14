@@ -53,13 +53,22 @@
 - marge et exposition
 - tests de faisabilité par instrument
 
-## Phase 7 — Backtest
+## Phase 7A — Exécution futures sur barres (Milestone 2B — implémentée)
 
-- sequential clock
-- next-bar execution
-- gaps
-- intrabar policy
-- costs
+- simulateur pur `BAR_BASED_H1_V1`
+- signal on close, exécution au prochain open H1 négociable
+- schedules versionnés, pauses de maintenance et fenêtres de contrats datés
+- gaps, stops fixes et politique intrabar `STOP_FIRST`
+- revalidation complète du risque avant fill
+- coûts, slippage, settlements et variation margin
+- roll explicite avec sortie, nouveau stop et réentrée conditionnelle
+- tests d'acceptation synthétiques FDXS/MES et causalité par ajout de futur
+
+## Phase 7B — Backtest séquentiel (Milestone 2C — planifiée)
+
+- sequential portfolio clock
+- orchestration strategy/risk/execution
+- run lifecycle and invalid-data propagation
 - metrics
 - comptabilité initialisée à `1 000 EUR` sans injection de cash ni augmentation automatique du plafond
 

@@ -33,7 +33,21 @@ Une feature métier est terminée seulement si :
 Une feature de persistance backtest (Milestone 2C) exige en plus que le lien
 entre une décision historique et son backtest soit protégé par une clé étrangère.
 
-Une feature d'exécution exige en plus :
+Une feature d'exécution simulée Milestone 2B exige en plus :
+
+- modèle, schedules et sources versionnés
+- distinction entre l'instant économique `occurredAt` et l'instant causal
+  `availableAt`
+- signal on close sans fill rétroactif et revalidation du risque au prochain
+  open négociable
+- gaps, stops et ambiguïtés intrabar traités selon une politique explicite
+- settlements officiels et variation margin sans substitution silencieuse
+- roll explicite entre contrats datés avec nouveau stop et nouveau contrôle risque
+- résultats immuables, calculs décimaux exacts et invariance aux données futures
+- limites bar-based documentées : aucune donnée minute, tick, carnet d'ordres ou
+  fill partiel
+
+Une feature d'exécution broker ou paper trading exige en plus :
 
 - idempotence
 - state machine

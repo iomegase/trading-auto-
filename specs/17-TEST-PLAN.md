@@ -58,13 +58,29 @@ Le test doit couvrir :
 
 ## Execution
 
-- signal at close cannot fill same close under NEXT_BAR_OPEN
-- next bar gap
-- stop gap-through
-- stop/target same bar
-- partial fill
-- duplicate submit
-- disconnect after submit → UNKNOWN + reconciliation
+Milestone 2B `BAR_BASED_H1_V1` :
+
+- [x] un signal à la clôture ne peut pas être rempli à cette même clôture
+- [x] prochain open H1 négociable sélectionné par un schedule versionné
+- [x] pause de maintenance et intervalles UTC de forme DST
+- [x] gap d'entrée puis revalidation complète du risque
+- [x] fill complet, fill réduit ou annulation après revalidation
+- [x] stop traversé à l'ouverture et stop touché intrabar
+- [x] ambiguïté OHLC résolue par `STOP_FIRST`
+- [x] sortie de tendance connue à la clôture et remplie au prochain prix
+- [x] settlement officiel causal et variation margin
+- [x] roll explicite : sortie de l'ancien contrat, nouveau stop et réentrée
+  conditionnelle sur le nouveau contrat daté
+- [x] rejet des symboles continus aux frontières exécutables
+- [x] invariance à l'ajout de barres, snapshots et settlements futurs
+- [x] coûts, slippage et P&L calculés en décimaux exacts
+- [x] scénarios synthétiques FDXS EUR et MES USD→EUR
+
+Hors Milestone 2B et requis avant tout paper trading :
+
+- [ ] partial fills broker
+- [ ] duplicate submit broker
+- [ ] disconnect after submit → UNKNOWN + reconciliation
 
 ## Risk
 
@@ -148,7 +164,7 @@ Dataset + config + code hash identiques :
 
 ## Gate
 
-Paper trading interdit si les suites :
+Paper trading interdit si les suites applicables :
 
 - causality
 - indicator
@@ -158,3 +174,7 @@ Paper trading interdit si les suites :
 - reproducibility
 
 ne sont pas vertes.
+
+La gate locale de Milestone 2B couvre en plus l'API publique compilée du package
+`@trading-auto/execution`. La réussite de cette gate ne lève pas le statut
+`RESEARCH_ONLY` et ne remplace pas les données broker datées.
