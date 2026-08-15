@@ -31,13 +31,20 @@ function event(
   type: BacktestEventType,
   semanticId: string,
   availableAt = '2026-08-14T09:00:00Z',
+  subject: Readonly<{
+    instrumentId: string | null;
+    contractId: string | null;
+  }> = {
+    instrumentId: type === 'PORTFOLIO_SNAPSHOT' ? null : 'FDXS',
+    contractId: type === 'PORTFOLIO_SNAPSHOT' ? null : 'FDXS-202609',
+  },
 ) {
   return createBacktestEvent({
     semanticId,
     type,
     availableAt,
-    instrumentId: type === 'PORTFOLIO_SNAPSHOT' ? null : 'FDXS',
-    contractId: type === 'PORTFOLIO_SNAPSHOT' ? null : 'FDXS-202609',
+    instrumentId: subject.instrumentId,
+    contractId: subject.contractId,
     version: 'V1',
     payload: {},
   });
@@ -272,19 +279,28 @@ describe('reduceBacktestPortfolio lifecycle', () => {
   it('sorts and removes active contracts without touching accounting', async () => {
     const first = await reduce(initialState(), {
       type: 'SET_ACTIVE_CONTRACT',
-      event: event('DATA_AVAILABLE', 'contract-z'),
+      event: event('DATA_AVAILABLE', 'contract-z', undefined, {
+        instrumentId: 'Z_PRODUCT',
+        contractId: 'Z-202609',
+      }),
       instrumentId: 'Z_PRODUCT',
       contractId: 'Z-202609',
     });
     const second = await reduce(first, {
       type: 'SET_ACTIVE_CONTRACT',
-      event: event('ROLL', 'contract-a', '2026-08-14T10:00:00Z'),
+      event: event('ROLL', 'contract-a', '2026-08-14T10:00:00Z', {
+        instrumentId: 'A_PRODUCT',
+        contractId: 'A-202609',
+      }),
       instrumentId: 'A_PRODUCT',
       contractId: 'A-202609',
     });
     const removed = await reduce(second, {
       type: 'SET_ACTIVE_CONTRACT',
-      event: event('ROLL', 'contract-z-remove', '2026-08-14T11:00:00Z'),
+      event: event('ROLL', 'contract-z-remove', '2026-08-14T11:00:00Z', {
+        instrumentId: 'Z_PRODUCT',
+        contractId: 'Z-202609',
+      }),
       instrumentId: 'Z_PRODUCT',
       contractId: null,
     });
@@ -985,7 +1001,10 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     });
     const once = await reduce(initialState(), {
       type: 'REGISTER_INTENT',
-      event: event('SIGNAL_DECISION', 'huge-1', '2026-08-14T08:01:00Z'),
+      event: event('SIGNAL_DECISION', 'huge-1', '2026-08-14T08:01:00Z', {
+        instrumentId: 'HUGE_PRODUCT_1',
+        contractId: 'HUGE-1-202609',
+      }),
       intent: buildIntentState({
         executionIntent: firstIntent,
         reservedMargin: huge,
@@ -995,7 +1014,10 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     await expect(
       reduce(once, {
         type: 'REGISTER_INTENT',
-        event: event('SIGNAL_DECISION', 'huge-2', '2026-08-14T08:02:00Z'),
+        event: event('SIGNAL_DECISION', 'huge-2', '2026-08-14T08:02:00Z', {
+          instrumentId: 'HUGE_PRODUCT_2',
+          contractId: 'HUGE-2-202609',
+        }),
         intent: buildIntentState({
           executionIntent: secondIntent,
           reservedMargin: huge,
@@ -1175,12 +1197,18 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     });
     let state = await reduce(initialState(), {
       type: 'REGISTER_INTENT',
-      event: event('SIGNAL_DECISION', 'signal-z', '2026-08-14T08:01:00Z'),
+      event: event('SIGNAL_DECISION', 'signal-z', '2026-08-14T08:01:00Z', {
+        instrumentId: 'Z_PRODUCT',
+        contractId: 'Z-202609',
+      }),
       intent: buildIntentState({ executionIntent: zIntent }),
     });
     state = await reduce(state, {
       type: 'REGISTER_INTENT',
-      event: event('SIGNAL_DECISION', 'signal-a', '2026-08-14T08:02:00Z'),
+      event: event('SIGNAL_DECISION', 'signal-a', '2026-08-14T08:02:00Z', {
+        instrumentId: 'A_PRODUCT',
+        contractId: 'A-202609',
+      }),
       intent: buildIntentState({ executionIntent: aIntent }),
     });
     expect(
@@ -1196,7 +1224,10 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     });
     state = await reduce(state, {
       type: 'OPEN_POSITION',
-      event: event('OPEN_ENTRY', 'open-a', '2026-08-14T09:00:00Z'),
+      event: event('OPEN_ENTRY', 'open-a', '2026-08-14T09:00:00Z', {
+        instrumentId: 'A_PRODUCT',
+        contractId: 'A-202609',
+      }),
       intentId: 'INTENT-A',
       position: buildPositionState({ executionPosition: aExecution }),
       cashChange: '-1',
@@ -1209,7 +1240,10 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     });
     state = await reduce(state, {
       type: 'OPEN_POSITION',
-      event: event('OPEN_ENTRY', 'open-z', '2026-08-14T09:01:00Z'),
+      event: event('OPEN_ENTRY', 'open-z', '2026-08-14T09:01:00Z', {
+        instrumentId: 'Z_PRODUCT',
+        contractId: 'Z-202609',
+      }),
       intentId: 'INTENT-Z',
       position: buildPositionState({ executionPosition: zExecution }),
       cashChange: '-1',
@@ -1235,12 +1269,18 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
         'CLOSED_BAR_POSITION',
         'multi-revalue',
         '2026-08-14T14:00:00Z',
+        { instrumentId: 'Z_PRODUCT', contractId: 'Z-202609' },
       ),
       position: updatedZ,
     });
     state = await reduce(state, {
       type: 'APPLY_ACCOUNTING',
-      event: event('DAILY_SETTLEMENT', 'multi-account', '2026-08-14T15:00:00Z'),
+      event: event(
+        'DAILY_SETTLEMENT',
+        'multi-account',
+        '2026-08-14T15:00:00Z',
+        { instrumentId: 'Z_PRODUCT', contractId: 'Z-202609' },
+      ),
       cashChange: '-1',
       updatedPosition: updatedZ,
       ledgerEntry: {
@@ -1258,7 +1298,10 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     });
     state = await reduce(state, {
       type: 'REGISTER_INTENT',
-      event: event('SIGNAL_DECISION', 'third-signal', '2026-08-14T16:00:00Z'),
+      event: event('SIGNAL_DECISION', 'third-signal', '2026-08-14T16:00:00Z', {
+        instrumentId: 'THIRD_PRODUCT',
+        contractId: 'THIRD-202609',
+      }),
       intent: buildIntentState({ executionIntent: thirdIntent }),
     });
     const duplicateIdExecution = buildExecutionPosition({
@@ -1268,7 +1311,10 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     await expect(
       reduce(state, {
         type: 'OPEN_POSITION',
-        event: event('OPEN_ENTRY', 'third-open', '2026-08-14T17:00:00Z'),
+        event: event('OPEN_ENTRY', 'third-open', '2026-08-14T17:00:00Z', {
+          instrumentId: 'THIRD_PRODUCT',
+          contractId: 'THIRD-202609',
+        }),
         intentId: thirdIntent.intentId,
         position: buildPositionState({
           executionPosition: duplicateIdExecution,

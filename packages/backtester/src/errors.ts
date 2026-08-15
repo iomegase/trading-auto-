@@ -31,20 +31,15 @@ function cloneDetailArray(
     return UNREADABLE_DETAIL;
   }
 
-  const length: unknown =
-    lengthDescriptor !== undefined && 'value' in lengthDescriptor
-      ? (lengthDescriptor as { readonly value: unknown }).value
-      : undefined;
-  if (
-    !Number.isSafeInteger(length) ||
-    (length as number) < 0 ||
-    (length as number) > MAX_DETAIL_ARRAY_ITEMS
-  ) {
+  // A real Array has a non-configurable own data `length`; Proxy invariants
+  // force the same descriptor or throw in the guarded call above.
+  const length = (lengthDescriptor as { readonly value: number }).value;
+  if (length > MAX_DETAIL_ARRAY_ITEMS) {
     return TRUNCATED_DETAIL;
   }
 
-  const result: unknown[] = new Array(length as number);
-  for (let index = 0; index < (length as number); index += 1) {
+  const result: unknown[] = new Array(length);
+  for (let index = 0; index < length; index += 1) {
     let descriptor: PropertyDescriptor | undefined;
     try {
       descriptor = Object.getOwnPropertyDescriptor(input, String(index));

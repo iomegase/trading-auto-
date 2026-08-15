@@ -1315,6 +1315,25 @@ function assertEventType(
   }
 }
 
+function assertEventSubject(
+  event: BacktestEvent,
+  instrumentId: string,
+  contractId?: string,
+): void {
+  if (
+    event.instrumentId !== instrumentId ||
+    (contractId !== undefined && event.contractId !== contractId)
+  ) {
+    invalidState('Event provenance differs from its transition entity.', {
+      eventId: event.semanticId,
+      eventInstrumentId: event.instrumentId,
+      eventContractId: event.contractId,
+      instrumentId,
+      ...(contractId === undefined ? {} : { contractId }),
+    });
+  }
+}
+
 function transitionType(value: unknown): BacktestPortfolioTransition['type'] {
   if (
     value !== 'REGISTER_INTENT' &&
@@ -1566,6 +1585,11 @@ export function reduceBacktestPortfolio(
         'transition.intent',
         'input',
       );
+      assertEventSubject(
+        currentEvent,
+        intent.executionIntent.instrumentId,
+        intent.executionIntent.contractId,
+      );
       if (
         entryById(intents, intent.executionIntent.intentId) !== undefined ||
         intents.some(
@@ -1589,9 +1613,15 @@ export function reduceBacktestPortfolio(
         readRequiredOwn(raw, 'intentId', 'transition.intentId'),
         'transition.intentId',
       );
-      if (entryById(intents, intentId) === undefined) {
+      const currentIntent = entryById(intents, intentId);
+      if (currentIntent === undefined) {
         invalidState('Cannot cancel an unknown entry intent.', { intentId });
       }
+      assertEventSubject(
+        currentEvent,
+        currentIntent.executionIntent.instrumentId,
+        currentIntent.executionIntent.contractId,
+      );
       intents = intents.filter(
         ({ executionIntent }) => executionIntent.intentId !== intentId,
       );
@@ -1622,6 +1652,11 @@ export function reduceBacktestPortfolio(
       ) {
         invalidState('Opened position must match its active intent.');
       }
+      assertEventSubject(
+        currentEvent,
+        position.executionPosition.instrumentId,
+        position.executionPosition.contractId,
+      );
       if (
         positions.some(
           ({ executionPosition }) =>
@@ -1664,6 +1699,11 @@ export function reduceBacktestPortfolio(
       if (current === undefined) {
         invalidState('Cannot revalue an unknown position.', { positionId });
       }
+      assertEventSubject(
+        currentEvent,
+        position.executionPosition.instrumentId,
+        position.executionPosition.contractId,
+      );
       if (!sameRevaluationPosition(current, position)) {
         invalidState('Revaluation may only change unrealized P&L.', {
           positionId,
@@ -1699,6 +1739,11 @@ export function reduceBacktestPortfolio(
             positionId,
           });
         }
+        assertEventSubject(
+          currentEvent,
+          updated.executionPosition.instrumentId,
+          updated.executionPosition.contractId,
+        );
         positions = positions.map((current) =>
           current.executionPosition.positionId === positionId
             ? updated
@@ -1713,9 +1758,15 @@ export function reduceBacktestPortfolio(
         readRequiredOwn(raw, 'positionId', 'transition.positionId'),
         'transition.positionId',
       );
-      if (positionById(positions, positionId) === undefined) {
+      const current = positionById(positions, positionId);
+      if (current === undefined) {
         invalidState('Cannot close an unknown position.', { positionId });
       }
+      assertEventSubject(
+        currentEvent,
+        current.executionPosition.instrumentId,
+        current.executionPosition.contractId,
+      );
       const accounting = validateCashEntry(
         readRequiredOwn(raw, 'ledgerEntry', 'transition.ledgerEntry'),
         currentEvent,
@@ -1745,6 +1796,7 @@ export function reduceBacktestPortfolio(
         readRequiredOwn(raw, 'contractId', 'transition.contractId'),
         'transition.contractId',
       );
+      assertEventSubject(currentEvent, instrumentId);
       contracts = sortedActiveContracts(contracts, instrumentId, contractId);
       break;
     }
