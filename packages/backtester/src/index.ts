@@ -26,3 +26,12 @@ export {
   type LedgerPosting,
   type LedgerPostingInput,
 } from './ledger.js';
+export {
+  createBacktestPortfolioState,
+  type BacktestDailyPortfolioSnapshot,
+  type BacktestIntentState,
+  type BacktestOperatingStatus,
+  type BacktestPortfolioState,
+  type BacktestPortfolioStateInput,
+  type BacktestPositionState,
+} from './portfolio.js';
