@@ -14,3 +14,4 @@ export {
   type JsonObject,
   type JsonValue,
 } from './event.js';
+export { orderBacktestEvents, type OrderBacktestEventsInput } from './clock.js';

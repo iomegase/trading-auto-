@@ -69,6 +69,15 @@ const EVENT_INPUT_FIELDS = Object.freeze([
   'payload',
 ] as const);
 
+const EVENT_INPUT_FIELDS_AFTER_AVAILABLE_AT = Object.freeze([
+  'semanticId',
+  'type',
+  'instrumentId',
+  'contractId',
+  'version',
+  'payload',
+] as const);
+
 function invalid(message: string, field: string, value?: unknown): never {
   throw new BacktestInputError('INVALID_BACKTEST_INPUT', message, {
     field,
@@ -108,16 +117,15 @@ function instant(value: unknown): InstantString {
   }
 }
 
-export function createBacktestEvent(input: BacktestEventInput): BacktestEvent {
-  const snapshot = snapshotSelectedOwn(input, 'input', EVENT_INPUT_FIELDS);
+function createEventFromSnapshot(
+  snapshot: Readonly<Record<string, unknown>>,
+  availableAt: InstantString,
+): BacktestEvent {
   const semanticId = nonblank(
     readRequiredOwn(snapshot, 'semanticId', 'semanticId'),
     'semanticId',
   );
   const type = eventType(readRequiredOwn(snapshot, 'type', 'type'));
-  const availableAt = instant(
-    readRequiredOwn(snapshot, 'availableAt', 'availableAt'),
-  );
   const instrumentId = nullableNonblank(
     readRequiredOwn(snapshot, 'instrumentId', 'instrumentId'),
     'instrumentId',
@@ -145,4 +153,22 @@ export function createBacktestEvent(input: BacktestEventInput): BacktestEvent {
     version,
     payload,
   });
+}
+
+export function createBacktestEvent(input: BacktestEventInput): BacktestEvent {
+  const snapshot = snapshotSelectedOwn(input, 'input', EVENT_INPUT_FIELDS);
+  return createEventFromSnapshot(
+    snapshot,
+    instant(readRequiredOwn(snapshot, 'availableAt', 'availableAt')),
+  );
+}
+
+export function createBacktestEventWithAvailableAt(
+  input: BacktestEventInput,
+  availableAt: InstantString,
+): BacktestEvent {
+  return createEventFromSnapshot(
+    snapshotSelectedOwn(input, 'input', EVENT_INPUT_FIELDS_AFTER_AVAILABLE_AT),
+    availableAt,
+  );
 }
