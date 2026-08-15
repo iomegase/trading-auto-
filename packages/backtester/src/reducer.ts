@@ -39,6 +39,7 @@ import {
   appendLedgerEntry,
   createLedgerEntry,
   type BacktestLedger,
+  type LedgerAccount,
   type LedgerEntry,
   type LedgerEntryInput,
 } from './ledger.js';
@@ -255,6 +256,7 @@ const DAILY_SNAPSHOT_FIELDS = Object.freeze([
 const MAX_PORTFOLIO_ITEMS = 1_000;
 const MAX_DAILY_SNAPSHOTS = 10_000;
 const MAX_LEDGER_ENTRIES = 1_000_000;
+const MAX_ACTIVE_CONTRACTS = 256;
 const LIMITATIONS: readonly ExecutionLimitation[] = Object.freeze([
   'NO_INTRABAR_PATH',
   'NO_PARTIAL_FILLS',
@@ -263,6 +265,13 @@ const LIMITATIONS: readonly ExecutionLimitation[] = Object.freeze([
 
 function invalid(message: string, field: string, value?: unknown): never {
   throw new BacktestInputError('INVALID_BACKTEST_INPUT', message, {
+    field,
+    value,
+  });
+}
+
+function limit(message: string, field: string, value?: unknown): never {
+  throw new BacktestInputError('BACKTEST_LIMIT_EXCEEDED', message, {
     field,
     value,
   });
@@ -391,11 +400,7 @@ function assertEqualDecimal(
 }
 
 function compareStateClockKeys(current: string, previous: string): number {
-  try {
-    return compareClockKeys(current, previous);
-  } catch {
-    invalidState('State lastClockKey is malformed.', { previous });
-  }
+  return compareClockKeys(current, previous);
 }
 
 function aggregateSum(values: readonly string[]): DecimalString {
@@ -918,11 +923,17 @@ function snapshotDailySnapshots(
   );
   const result = raw.map(snapshotDailySnapshot);
   const ids = new Set<string>();
+  const eventIds = new Set<string>();
   let previous: BacktestDailyPortfolioSnapshot | undefined;
   for (const snapshot of result) {
     if (ids.has(snapshot.snapshotId)) {
       invalidState('Daily snapshot IDs must be unique.', {
         snapshotId: snapshot.snapshotId,
+      });
+    }
+    if (eventIds.has(snapshot.eventId)) {
+      invalidState('Daily snapshot event IDs must be unique.', {
+        eventId: snapshot.eventId,
       });
     }
     if (
@@ -932,6 +943,7 @@ function snapshotDailySnapshots(
       invalidState('Daily snapshots must be chronological.');
     }
     ids.add(snapshot.snapshotId);
+    eventIds.add(snapshot.eventId);
     previous = snapshot;
   }
   return Object.freeze(result);
@@ -1235,6 +1247,23 @@ function snapshotState(value: BacktestPortfolioState): StateParts {
     lastClockKeyValue === null
       ? null
       : nonblank(lastClockKeyValue, 'state.lastClockKey', 'state');
+  const dailySnapshots = snapshotDailySnapshots(
+    readRequiredOwn(raw, 'dailySnapshots', 'state.dailySnapshots'),
+  );
+  const processedEventCount = nonnegativeSafeInteger(
+    readRequiredOwn(raw, 'processedEventCount', 'state.processedEventCount'),
+    'state.processedEventCount',
+    'state',
+  );
+  assertStateCausality(
+    runCreatedAt,
+    positions,
+    activeEntryIntents,
+    dailySnapshots,
+    ledger,
+    processedEventCount,
+    lastClockKey,
+  );
 
   return Object.freeze({
     backtestId,
@@ -1267,15 +1296,9 @@ function snapshotState(value: BacktestPortfolioState): StateParts {
         'state.activeContractByInstrument',
       ),
     ),
-    dailySnapshots: snapshotDailySnapshots(
-      readRequiredOwn(raw, 'dailySnapshots', 'state.dailySnapshots'),
-    ),
+    dailySnapshots,
     ledger,
-    processedEventCount: nonnegativeSafeInteger(
-      readRequiredOwn(raw, 'processedEventCount', 'state.processedEventCount'),
-      'state.processedEventCount',
-      'state',
-    ),
+    processedEventCount,
     lastClockKey,
   });
 }
@@ -1381,11 +1404,130 @@ function sameRevaluationPosition(
   );
 }
 
+function equalSelectedFields(
+  current: object,
+  updated: object,
+  fields: readonly string[],
+  mutableFields: readonly string[],
+): boolean {
+  const currentRecord = current as Readonly<Record<string, unknown>>;
+  const updatedRecord = updated as Readonly<Record<string, unknown>>;
+  return fields.every(
+    (field) =>
+      mutableFields.includes(field) ||
+      JSON.stringify(currentRecord[field]) ===
+        JSON.stringify(updatedRecord[field]),
+  );
+}
+
+function sameAccountingPosition(
+  current: BacktestPositionState,
+  updated: BacktestPositionState,
+): boolean {
+  return (
+    equalSelectedFields(
+      current.executionPosition,
+      updated.executionPosition,
+      OPEN_POSITION_FIELDS,
+      ['accountingBasisPrice', 'lastSettlementEffectiveAt'],
+    ) &&
+    equalSelectedFields(
+      current.riskPosition,
+      updated.riskPosition,
+      RISK_POSITION_FIELDS,
+      ['remainingOpenRisk', 'margin', 'grossExposure'],
+    )
+  );
+}
+
+function stateClockInstant(clockKey: string): Temporal.Instant {
+  try {
+    compareClockKeys(clockKey, clockKey);
+    return Temporal.Instant.from(clockKey.slice(0, clockKey.indexOf('|')));
+  } catch {
+    invalidState('State lastClockKey is malformed.', { clockKey });
+  }
+}
+
+function assertNotAfterStateClock(
+  value: InstantString,
+  clock: Temporal.Instant,
+  field: string,
+): void {
+  if (Temporal.Instant.compare(Temporal.Instant.from(value), clock) > 0) {
+    invalidState(`${field} is later than the state clock.`, { field, value });
+  }
+}
+
+function assertStateCausality(
+  runCreatedAt: InstantString,
+  positions: readonly BacktestPositionState[],
+  intents: readonly BacktestIntentState[],
+  snapshots: readonly BacktestDailyPortfolioSnapshot[],
+  ledger: BacktestLedger,
+  processedEventCount: number,
+  lastClockKey: string | null,
+): void {
+  if (ledger[0]?.occurredAt !== runCreatedAt) {
+    invalidState('Initial ledger time differs from run creation.');
+  }
+  const clock = lastClockKey === null ? null : stateClockInstant(lastClockKey);
+  if ((processedEventCount === 0) !== (lastClockKey === null)) {
+    invalidState('Event count and last clock key do not reconcile.');
+  }
+  if (clock === null) return;
+
+  for (const [index, position] of positions.entries()) {
+    assertNotAfterStateClock(
+      position.executionPosition.signalDecisionAt,
+      clock,
+      `positions[${String(index)}].signalDecisionAt`,
+    );
+    assertNotAfterStateClock(
+      position.executionPosition.openedAt,
+      clock,
+      `positions[${String(index)}].openedAt`,
+    );
+    if (position.executionPosition.lastSettlementEffectiveAt !== null) {
+      assertNotAfterStateClock(
+        position.executionPosition.lastSettlementEffectiveAt,
+        clock,
+        `positions[${String(index)}].lastSettlementEffectiveAt`,
+      );
+    }
+  }
+  for (const [index, intent] of intents.entries()) {
+    assertNotAfterStateClock(
+      intent.executionIntent.signalDecisionAt,
+      clock,
+      `activeEntryIntents[${String(index)}].signalDecisionAt`,
+    );
+  }
+  for (const [index, snapshot] of snapshots.entries()) {
+    assertNotAfterStateClock(
+      snapshot.recordedAt,
+      clock,
+      `dailySnapshots[${String(index)}].recordedAt`,
+    );
+  }
+  for (const [index, entry] of ledger.entries()) {
+    assertNotAfterStateClock(
+      entry.occurredAt,
+      clock,
+      `ledger[${String(index)}].occurredAt`,
+    );
+  }
+}
+
 function validateCashEntry(
   rawEntry: unknown,
   event: BacktestEvent,
   cashChangeValue: unknown,
-): { readonly entry: LedgerEntry; readonly cashChange: DecimalString } {
+): {
+  readonly entry: LedgerEntry;
+  readonly cashChange: DecimalString;
+  readonly balancingAccount: LedgerAccount;
+} {
   const cashChange = asBacktestDecimal(cashChangeValue, 'cashChange');
   let entry: LedgerEntry;
   try {
@@ -1426,7 +1568,11 @@ function validateCashEntry(
   ) {
     invalidState('Positive cash cannot be explained by COSTS.');
   }
-  return Object.freeze({ entry, cashChange });
+  return Object.freeze({
+    entry,
+    cashChange,
+    balancingAccount: balancingPosting.account,
+  });
 }
 
 function sortedActiveContracts(
@@ -1437,6 +1583,13 @@ function sortedActiveContracts(
   const values = new Map(Object.entries(current));
   if (contractId === null) values.delete(instrumentId);
   else values.set(instrumentId, contractId);
+  if (values.size > MAX_ACTIVE_CONTRACTS) {
+    limit(
+      `activeContractByInstrument exceeds ${String(MAX_ACTIVE_CONTRACTS)} items.`,
+      'activeContractByInstrument',
+      values.size,
+    );
+  }
   const result: Record<string, string> = Object.create(null) as Record<
     string,
     string
@@ -1511,6 +1664,20 @@ function assembleState(
     activeEntryIntents,
     values.ledger,
   );
+  const processedEventCount = nonnegativeSafeInteger(
+    values.processedEventCount,
+    'processedEventCount',
+    'state',
+  );
+  assertStateCausality(
+    base.runCreatedAt,
+    positions,
+    activeEntryIntents,
+    values.dailySnapshots,
+    values.ledger,
+    processedEventCount,
+    values.lastClockKey,
+  );
   return Object.freeze({
     backtestId: base.backtestId,
     runCreatedAt: base.runCreatedAt,
@@ -1540,7 +1707,7 @@ function assembleState(
     activeContractByInstrument: values.activeContractByInstrument,
     dailySnapshots: values.dailySnapshots,
     ledger: values.ledger,
-    processedEventCount: values.processedEventCount,
+    processedEventCount,
     lastClockKey: values.lastClockKey,
   });
 }
@@ -1648,7 +1815,25 @@ export function reduceBacktestPortfolio(
         position.executionPosition.contractId !==
           currentIntent.executionIntent.contractId ||
         position.executionPosition.direction !==
-          currentIntent.executionIntent.direction
+          currentIntent.executionIntent.direction ||
+        position.executionPosition.riskDecisionId !==
+          currentIntent.executionIntent.riskDecisionId ||
+        position.executionPosition.strategyVersion !==
+          currentIntent.executionIntent.strategyVersion ||
+        position.executionPosition.datasetVersion !==
+          currentIntent.executionIntent.datasetVersion ||
+        position.executionPosition.signalCloseTime !==
+          currentIntent.executionIntent.signalCloseTime ||
+        position.executionPosition.signalDecisionAt !==
+          currentIntent.executionIntent.signalDecisionAt ||
+        !equalDecimal(
+          position.executionPosition.protectiveStopPrice,
+          currentIntent.executionIntent.stopPrice,
+        ) ||
+        decimalCompare(
+          position.executionPosition.quantity,
+          currentIntent.executionIntent.requestedQuantity,
+        ) > 0
       ) {
         invalidState('Opened position must match its active intent.');
       }
@@ -1673,6 +1858,9 @@ export function reduceBacktestPortfolio(
         currentEvent,
         readRequiredOwn(raw, 'cashChange', 'transition.cashChange'),
       );
+      if (accounting.balancingAccount !== 'COSTS') {
+        invalidState('Entry costs must be posted to COSTS.');
+      }
       if (
         !equalDecimal(
           accounting.cashChange,
@@ -1727,6 +1915,11 @@ export function reduceBacktestPortfolio(
         'updatedPosition',
         'transition.updatedPosition',
       );
+      if (updatedValue === null && accounting.balancingAccount !== 'COSTS') {
+        invalidState(
+          'Accounting without a remaining position may only post costs.',
+        );
+      }
       if (updatedValue !== null) {
         const updated = snapshotPositionState(
           updatedValue,
@@ -1734,15 +1927,22 @@ export function reduceBacktestPortfolio(
           'input',
         );
         const positionId = updated.executionPosition.positionId;
-        if (positionById(positions, positionId) === undefined) {
+        const current = positionById(positions, positionId);
+        if (current === undefined) {
           invalidState('Cannot account for an unknown position.', {
             positionId,
           });
         }
+        if (!sameAccountingPosition(current, updated)) {
+          invalidState(
+            'Accounting may not rewrite position identity or entry economics.',
+            { positionId },
+          );
+        }
         assertEventSubject(
           currentEvent,
-          updated.executionPosition.instrumentId,
-          updated.executionPosition.contractId,
+          current.executionPosition.instrumentId,
+          current.executionPosition.contractId,
         );
         positions = positions.map((current) =>
           current.executionPosition.positionId === positionId
@@ -1805,8 +2005,24 @@ export function reduceBacktestPortfolio(
         readRequiredOwn(raw, 'snapshotId', 'transition.snapshotId'),
         'transition.snapshotId',
       );
-      if (snapshots.some((snapshot) => snapshot.snapshotId === snapshotId)) {
-        invalidState('Daily snapshot ID already exists.', { snapshotId });
+      if (snapshots.length >= MAX_DAILY_SNAPSHOTS) {
+        limit(
+          `dailySnapshots exceeds ${String(MAX_DAILY_SNAPSHOTS)} items.`,
+          'dailySnapshots',
+          snapshots.length + 1,
+        );
+      }
+      if (
+        snapshots.some(
+          (snapshot) =>
+            snapshot.snapshotId === snapshotId ||
+            snapshot.eventId === currentEvent.semanticId,
+        )
+      ) {
+        invalidState('Daily snapshot identity already exists.', {
+          snapshotId,
+          eventId: currentEvent.semanticId,
+        });
       }
       const aggregates = calculateAggregates(
         base.policy,

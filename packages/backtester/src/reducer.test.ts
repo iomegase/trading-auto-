@@ -335,6 +335,18 @@ describe('reduceBacktestPortfolio lifecycle', () => {
       snapshotId: 'SNAPSHOT-2',
     });
 
+    await expect(
+      reduce(first, {
+        type: 'RECORD_PORTFOLIO_SNAPSHOT',
+        event: event(
+          'PORTFOLIO_SNAPSHOT',
+          'snapshot-event-1',
+          '2026-08-14T08:00:00Z',
+        ),
+        snapshotId: 'SNAPSHOT-DIFFERENT-ID',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+
     expect(first.dailySnapshots).toHaveLength(1);
     expect(second.dailySnapshots).toHaveLength(2);
     expect(second.dailySnapshots[0]).toEqual(first.dailySnapshots[0]);
@@ -394,6 +406,7 @@ describe('reduceBacktestPortfolio invariants', () => {
         intent: buildIntentState(),
       }),
     ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+
     await expect(
       reduce(initialState(), {
         type: 'CANCEL_INTENT',
@@ -503,6 +516,77 @@ describe('reduceBacktestPortfolio invariants', () => {
         ledgerEntry: ledgerEntry('wrong-entry-cost', '-1', 'COSTS'),
       }),
     ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+
+    for (const account of ['PNL_CLEARING', 'FX_TRANSLATION'] as const) {
+      const semanticId = `wrong-entry-account-${account.toLowerCase()}`;
+      await expect(
+        reduce(registered, {
+          type: 'OPEN_POSITION',
+          event: event('OPEN_ENTRY', semanticId),
+          intentId: 'INTENT-1',
+          position: valid,
+          cashChange: '-2',
+          ledgerEntry: ledgerEntry(semanticId, '-2', account),
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+    }
+  });
+
+  it('requires every opened-position provenance field to match its intent', async () => {
+    const registered = await stateWithIntent();
+    const valid = buildPositionState();
+    const cases: readonly unknown[] = [
+      {
+        ...valid,
+        executionPosition: {
+          ...valid.executionPosition,
+          riskDecisionId: 'OTHER-RISK',
+        },
+      },
+      {
+        ...valid,
+        executionPosition: {
+          ...valid.executionPosition,
+          strategyVersion: 'OTHER-STRATEGY',
+        },
+      },
+      {
+        ...valid,
+        executionPosition: {
+          ...valid.executionPosition,
+          datasetVersion: 'OTHER-DATASET',
+        },
+      },
+      {
+        ...valid,
+        executionPosition: {
+          ...valid.executionPosition,
+          protectiveStopPrice: '98.5',
+        },
+      },
+      {
+        ...valid,
+        executionPosition: {
+          ...valid.executionPosition,
+          quantity: '2',
+        },
+        riskPosition: { ...valid.riskPosition, quantity: '2' },
+      },
+    ];
+
+    for (const [index, position] of cases.entries()) {
+      const semanticId = `forged-open-provenance-${String(index)}`;
+      await expect(
+        reduce(registered, {
+          type: 'OPEN_POSITION',
+          event: event('OPEN_ENTRY', semanticId),
+          intentId: 'INTENT-1',
+          position,
+          cashChange: '-2',
+          ledgerEntry: ledgerEntry(semanticId, '-2', 'COSTS'),
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+    }
   });
 
   it.each([
@@ -783,15 +867,22 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     for (const dailySnapshots of [
       [stored, stored],
       [
-        { ...stored, snapshotId: 'LATER', recordedAt: '2026-08-14T10:00:00Z' },
+        {
+          ...stored,
+          snapshotId: 'LATER',
+          eventId: 'later-event',
+          recordedAt: '2026-08-14T10:00:00Z',
+        },
         {
           ...stored,
           snapshotId: 'EARLIER',
+          eventId: 'earlier-event',
           recordedAt: '2026-08-14T09:00:00Z',
         },
       ],
       [{ ...stored, positionCount: -1 }],
       [{ ...stored, operatingStatus: 'PAUSED' }],
+      [stored, { ...stored, snapshotId: 'OTHER-SNAPSHOT-ID' }],
     ]) {
       await expect(
         probe({ ...once, dailySnapshots } as unknown as BacktestPortfolioState),
@@ -871,6 +962,25 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
       ledgerEntry: ledgerEntry('account-without-position', '-1', 'COSTS'),
     });
     expect(accounted.cash).toBe('999');
+
+    for (const account of ['PNL_CLEARING', 'FX_TRANSLATION'] as const) {
+      await expect(
+        reduce(initialState(), {
+          type: 'APPLY_ACCOUNTING',
+          event: event(
+            'DAILY_SETTLEMENT',
+            `unexplained-${account.toLowerCase()}`,
+          ),
+          cashChange: '1',
+          updatedPosition: null,
+          ledgerEntry: ledgerEntry(
+            `unexplained-${account.toLowerCase()}`,
+            '1',
+            account,
+          ),
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+    }
 
     await expect(
       reduce(initialState(), {
@@ -1326,5 +1436,218 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
         },
       }),
     ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+  });
+
+  it('rejects lifecycle entities that reference time after their event', async () => {
+    const futureIntent = buildExecutionIntent({
+      signalCloseTime: '2026-08-14T10:00:00Z',
+      signalDecisionAt: '2026-08-14T10:00:00Z',
+      expiresAt: '2026-08-14T12:00:00Z',
+    });
+    await expect(
+      reduce(initialState(), {
+        type: 'REGISTER_INTENT',
+        event: event('SIGNAL_DECISION', 'premature-signal'),
+        intent: buildIntentState({ executionIntent: futureIntent }),
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+
+    const registered = await stateWithIntent();
+    const futureExecution = buildExecutionPosition({
+      occurredAt: '2026-08-14T10:00:00Z',
+    });
+    await expect(
+      reduce(registered, {
+        type: 'OPEN_POSITION',
+        event: event('OPEN_ENTRY', 'premature-open'),
+        intentId: 'INTENT-1',
+        position: buildPositionState({ executionPosition: futureExecution }),
+        cashChange: '-2',
+        ledgerEntry: ledgerEntry('premature-open', '-2', 'COSTS'),
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+
+    const opened = await stateWithPosition();
+    const current = opened.positions[0];
+    if (current === undefined) throw new Error('Missing opened position.');
+    await expect(
+      reduce(opened, {
+        type: 'APPLY_ACCOUNTING',
+        event: event(
+          'DAILY_SETTLEMENT',
+          'premature-settlement',
+          '2026-08-14T10:00:00Z',
+        ),
+        cashChange: '1',
+        updatedPosition: {
+          ...current,
+          executionPosition: {
+            ...current.executionPosition,
+            lastSettlementEffectiveAt: '2026-08-14T11:00:00Z',
+          },
+        },
+        ledgerEntry: {
+          ...ledgerEntry('premature-settlement', '1', 'PNL_CLEARING'),
+          occurredAt: '2026-08-14T10:00:00Z',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+  });
+
+  it('preserves immutable position identity and economics during accounting', async () => {
+    const opened = await stateWithPosition();
+    const current = opened.positions[0];
+    if (current === undefined) throw new Error('Missing opened position.');
+
+    const forgedInstrument = {
+      ...current,
+      executionPosition: {
+        ...current.executionPosition,
+        instrumentId: 'MES',
+        contractId: 'MES-202609',
+      },
+      riskPosition: {
+        ...current.riskPosition,
+        instrumentId: 'MES',
+        contractId: 'MES-202609',
+      },
+    };
+    await expect(
+      reduce(opened, {
+        type: 'APPLY_ACCOUNTING',
+        event: event(
+          'DAILY_SETTLEMENT',
+          'forged-accounting-identity',
+          '2026-08-14T10:00:00Z',
+          { instrumentId: 'MES', contractId: 'MES-202609' },
+        ),
+        cashChange: '1',
+        updatedPosition: forgedInstrument,
+        ledgerEntry: {
+          ...ledgerEntry('forged-accounting-identity', '1', 'PNL_CLEARING'),
+          occurredAt: '2026-08-14T10:00:00Z',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+
+    await expect(
+      reduce(opened, {
+        type: 'APPLY_ACCOUNTING',
+        event: event(
+          'DAILY_SETTLEMENT',
+          'forged-accounting-entry',
+          '2026-08-14T10:00:00Z',
+        ),
+        cashChange: '1',
+        updatedPosition: {
+          ...current,
+          executionPosition: {
+            ...current.executionPosition,
+            economicEntryPrice: '101',
+          },
+        },
+        ledgerEntry: {
+          ...ledgerEntry('forged-accounting-entry', '1', 'PNL_CLEARING'),
+          occurredAt: '2026-08-14T10:00:00Z',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+  });
+
+  it('rejects invalid stored time provenance and event-count overflow', async () => {
+    const initialized = initialState();
+    const initialEntry = initialized.ledger[0];
+    if (initialEntry === undefined) throw new Error('Missing initial ledger.');
+    const forgedLedgerTime = {
+      ...initialized,
+      ledger: [
+        {
+          ...initialEntry,
+          occurredAt: '2026-08-14T07:59:59Z',
+        },
+      ],
+    } as unknown as BacktestPortfolioState;
+    await expect(probe(forgedLedgerTime)).rejects.toMatchObject({
+      code: 'INVALID_BACKTEST_STATE',
+    });
+
+    const overflow = {
+      ...initialized,
+      processedEventCount: Number.MAX_SAFE_INTEGER,
+      lastClockKey: '2026-08-14T08:00:00Z|00|previous',
+    } as unknown as BacktestPortfolioState;
+    await expect(probe(overflow)).rejects.toMatchObject({
+      code: 'INVALID_BACKTEST_STATE',
+    });
+
+    const inconsistentCounter = {
+      ...initialized,
+      processedEventCount: 1,
+      lastClockKey: null,
+    } as unknown as BacktestPortfolioState;
+    await expect(probe(inconsistentCounter)).rejects.toMatchObject({
+      code: 'INVALID_BACKTEST_STATE',
+    });
+  });
+
+  it('refuses to grow bounded state collections beyond their exact cap', async () => {
+    const initialized = initialState();
+    const activeContractByInstrument = Object.fromEntries(
+      Array.from({ length: 256 }, (_, index) => [
+        `PRODUCT-${String(index).padStart(3, '0')}`,
+        `CONTRACT-${String(index).padStart(3, '0')}`,
+      ]),
+    );
+    const fullContracts = {
+      ...initialized,
+      activeContractByInstrument,
+      processedEventCount: 1,
+      lastClockKey: '2026-08-14T08:01:00Z|00|contracts-ready',
+    } as unknown as BacktestPortfolioState;
+    await expect(
+      reduce(fullContracts, {
+        type: 'SET_ACTIVE_CONTRACT',
+        event: event(
+          'DATA_AVAILABLE',
+          'contract-overflow',
+          '2026-08-14T09:00:00Z',
+          { instrumentId: 'PRODUCT-OVER', contractId: 'CONTRACT-OVER' },
+        ),
+        instrumentId: 'PRODUCT-OVER',
+        contractId: 'CONTRACT-OVER',
+      }),
+    ).rejects.toMatchObject({ code: 'BACKTEST_LIMIT_EXCEEDED' });
+
+    const once = await reduce(initialized, {
+      type: 'RECORD_PORTFOLIO_SNAPSHOT',
+      event: event(
+        'PORTFOLIO_SNAPSHOT',
+        'snapshot-template',
+        '2026-08-14T08:01:00Z',
+      ),
+      snapshotId: 'SNAPSHOT-TEMPLATE',
+    });
+    const template = once.dailySnapshots[0];
+    if (template === undefined) throw new Error('Missing snapshot template.');
+    const dailySnapshots = Array.from({ length: 10_000 }, (_, index) => ({
+      ...template,
+      snapshotId: `SNAPSHOT-${String(index).padStart(5, '0')}`,
+      eventId: `snapshot-event-${String(index).padStart(5, '0')}`,
+    }));
+    const fullSnapshots = {
+      ...once,
+      dailySnapshots,
+    } as unknown as BacktestPortfolioState;
+    await expect(
+      reduce(fullSnapshots, {
+        type: 'RECORD_PORTFOLIO_SNAPSHOT',
+        event: event(
+          'PORTFOLIO_SNAPSHOT',
+          'snapshot-overflow',
+          '2026-08-14T09:00:00Z',
+        ),
+        snapshotId: 'SNAPSHOT-OVERFLOW',
+      }),
+    ).rejects.toMatchObject({ code: 'BACKTEST_LIMIT_EXCEEDED' });
   });
 });
