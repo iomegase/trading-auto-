@@ -107,4 +107,33 @@ describe('backtester errors', () => {
         .details,
     ).toEqual({ value: '[truncated]' });
   });
+
+  it('contains invalid array lengths reported by a Proxy', async () => {
+    const { BacktestInputError } = await import('./index.js');
+    const hostile = new Proxy([1, 2, 3], {
+      getOwnPropertyDescriptor(target, property) {
+        if (property === 'length') {
+          return {
+            configurable: false,
+            enumerable: false,
+            value: 1.5,
+            writable: true,
+          };
+        }
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+
+    expect(
+      () =>
+        new BacktestInputError('INVALID_BACKTEST_INPUT', 'invalid', {
+          hostile,
+        }),
+    ).not.toThrow();
+    expect(
+      new BacktestInputError('INVALID_BACKTEST_INPUT', 'invalid', {
+        hostile,
+      }).details,
+    ).toEqual({ hostile: '[unreadable]' });
+  });
 });

@@ -67,7 +67,68 @@ const INITIAL_LEDGER_FIELDS = Object.freeze([
   'runCreatedAt',
 ] as const);
 const MAX_POSTINGS = 32;
-const MAX_LEDGER_ENTRIES = 1_000_000;
+export const MAX_LEDGER_ENTRIES = 1_000_000;
+
+interface LedgerLineage {
+  readonly entryIds: Set<string>;
+  tail: BacktestLedger;
+}
+
+interface LedgerMetadata {
+  readonly cash: DecimalString;
+  readonly hasCapitalAfterInitialization: boolean;
+  readonly lastOccurredAt: InstantString | null;
+  readonly lineage: LedgerLineage;
+}
+
+const VALIDATED_LEDGERS = new WeakMap<object, LedgerMetadata>();
+
+function cashTotal(ledger: BacktestLedger): DecimalString {
+  return decimalSum(
+    ledger.flatMap(({ postings }) =>
+      postings
+        .filter(({ account }) => account === 'CASH')
+        .map(({ amount }) => amount),
+    ),
+  );
+}
+
+function cacheValidatedLedger(ledger: BacktestLedger): BacktestLedger {
+  const last = ledger.at(-1);
+  const lineage: LedgerLineage = {
+    entryIds: new Set(ledger.map(({ entryId }) => entryId)),
+    tail: ledger,
+  };
+  VALIDATED_LEDGERS.set(ledger, {
+    cash: cashTotal(ledger),
+    hasCapitalAfterInitialization: ledger
+      .slice(1)
+      .some(({ postings }) =>
+        postings.some(({ account }) => account === 'CAPITAL'),
+      ),
+    lastOccurredAt: last?.occurredAt ?? null,
+    lineage,
+  });
+  return ledger;
+}
+
+export function validatedLedgerCash(
+  ledger: BacktestLedger,
+): DecimalString | undefined {
+  return VALIDATED_LEDGERS.get(ledger)?.cash;
+}
+
+export function validatedLedgerLastOccurredAt(
+  ledger: BacktestLedger,
+): InstantString | null | undefined {
+  return VALIDATED_LEDGERS.get(ledger)?.lastOccurredAt;
+}
+
+export function validatedLedgerHasSubsequentCapital(
+  ledger: BacktestLedger,
+): boolean | undefined {
+  return VALIDATED_LEDGERS.get(ledger)?.hasCapitalAfterInitialization;
+}
 
 function invalid(message: string, field: string, value?: unknown): never {
   throw new BacktestInputError('INVALID_BACKTEST_INPUT', message, {
@@ -252,7 +313,7 @@ export function createInitialLedger(input: {
     'runCreatedAt',
   );
 
-  return Object.freeze([
+  const ledger = Object.freeze([
     createLedgerEntry({
       entryId: `initialization:${backtestId}`,
       eventId: `run:${backtestId}:initialization`,
@@ -265,6 +326,7 @@ export function createInitialLedger(input: {
       ],
     }),
   ]);
+  return cacheValidatedLedger(ledger);
 }
 
 function compareInstants(left: InstantString, right: InstantString): number {
@@ -274,15 +336,11 @@ function compareInstants(left: InstantString, right: InstantString): number {
   );
 }
 
-export function appendLedgerEntry(
-  ledger: BacktestLedger,
-  entry: LedgerEntryInput,
+export function auditBacktestLedger(
+  ledger: unknown,
+  maximumEntries = MAX_LEDGER_ENTRIES,
 ): BacktestLedger {
-  const rawEntries = snapshotDenseArray(
-    ledger,
-    'ledger',
-    MAX_LEDGER_ENTRIES - 1,
-  );
+  const rawEntries = snapshotDenseArray(ledger, 'ledger', maximumEntries);
   const entries: LedgerEntry[] = [];
   const entryIds = new Set<string>();
   let previous: LedgerEntry | undefined;
@@ -312,23 +370,67 @@ export function appendLedgerEntry(
     previous = current;
   }
 
-  const appended = createLedgerEntry(entry);
-  if (entryIds.has(appended.entryId)) {
-    invalidState('ledger entry IDs must be unique.', {
-      entryId: appended.entryId,
-    });
-  }
-  if (
-    previous !== undefined &&
-    compareInstants(appended.occurredAt, previous.occurredAt) < 0
-  ) {
-    throw new BacktestStateError(
-      'EVENT_ORDER_VIOLATION',
-      'ledger entries must be chronological.',
-      { entryId: appended.entryId },
-    );
-  }
+  return cacheValidatedLedger(Object.freeze(entries));
+}
 
-  entries.push(appended);
-  return Object.freeze(entries);
+export function appendLedgerEntry(
+  ledger: BacktestLedger,
+  entry: LedgerEntryInput,
+): BacktestLedger {
+  const trusted = VALIDATED_LEDGERS.get(ledger);
+  if (trusted !== undefined) {
+    /* v8 ignore next 7 -- the equivalent million-item boundary is exercised on untrusted input without allocating a million-entry trusted ledger */
+    if (ledger.length >= MAX_LEDGER_ENTRIES) {
+      throw new BacktestInputError(
+        'BACKTEST_LIMIT_EXCEEDED',
+        `ledger exceeds ${String(MAX_LEDGER_ENTRIES)} items.`,
+        { field: 'ledger', value: ledger.length + 1 },
+      );
+    }
+    const appended = createLedgerEntry(entry);
+    const lineage =
+      trusted.lineage.tail === ledger
+        ? trusted.lineage
+        : {
+            entryIds: new Set(ledger.map(({ entryId }) => entryId)),
+            tail: ledger,
+          };
+    if (lineage.entryIds.has(appended.entryId)) {
+      invalidState('ledger entry IDs must be unique.', {
+        entryId: appended.entryId,
+      });
+    }
+    if (
+      trusted.lastOccurredAt !== null &&
+      compareInstants(appended.occurredAt, trusted.lastOccurredAt) < 0
+    ) {
+      throw new BacktestStateError(
+        'EVENT_ORDER_VIOLATION',
+        'ledger entries must be chronological.',
+        { entryId: appended.entryId },
+      );
+    }
+    const next = Object.freeze([...ledger, appended]);
+    lineage.entryIds.add(appended.entryId);
+    lineage.tail = next;
+    const cashPosting = appended.postings.find(
+      ({ account }) => account === 'CASH',
+    );
+    VALIDATED_LEDGERS.set(next, {
+      cash:
+        cashPosting === undefined
+          ? trusted.cash
+          : decimalSum([trusted.cash, cashPosting.amount]),
+      hasCapitalAfterInitialization:
+        trusted.hasCapitalAfterInitialization ||
+        appended.postings.some(({ account }) => account === 'CAPITAL'),
+      lastOccurredAt: appended.occurredAt,
+      lineage,
+    });
+    return next;
+  }
+  return appendLedgerEntry(
+    auditBacktestLedger(ledger, MAX_LEDGER_ENTRIES - 1),
+    entry,
+  );
 }

@@ -37,7 +37,12 @@ import {
 } from './event.js';
 import {
   appendLedgerEntry,
+  auditBacktestLedger,
   createLedgerEntry,
+  MAX_LEDGER_ENTRIES,
+  validatedLedgerCash,
+  validatedLedgerHasSubsequentCapital,
+  validatedLedgerLastOccurredAt,
   type BacktestLedger,
   type LedgerAccount,
   type LedgerEntry,
@@ -145,6 +150,8 @@ interface StateParts {
   readonly processedEventCount: number;
   readonly lastClockKey: string | null;
 }
+
+const VALIDATED_STATES = new WeakMap<object, StateParts>();
 
 const STATE_FIELDS = Object.freeze([
   'backtestId',
@@ -255,7 +262,6 @@ const DAILY_SNAPSHOT_FIELDS = Object.freeze([
 ] as const);
 const MAX_PORTFOLIO_ITEMS = 1_000;
 const MAX_DAILY_SNAPSHOTS = 10_000;
-const MAX_LEDGER_ENTRIES = 1_000_000;
 const MAX_ACTIVE_CONTRACTS = 256;
 const LIMITATIONS: readonly ExecutionLimitation[] = Object.freeze([
   'NO_INTRABAR_PATH',
@@ -949,39 +955,13 @@ function snapshotDailySnapshots(
   return Object.freeze(result);
 }
 
-function snapshotLedger(value: unknown, backtestId: string): BacktestLedger {
-  const raw = snapshotDenseArray(value, 'state.ledger', MAX_LEDGER_ENTRIES);
-  if (raw.length === 0) invalidState('Portfolio ledger must not be empty.');
-  const result: LedgerEntry[] = [];
-  const ids = new Set<string>();
-  let previous: LedgerEntry | undefined;
-  for (const rawEntry of raw) {
-    let entry: LedgerEntry;
-    try {
-      entry = createLedgerEntry(rawEntry as LedgerEntryInput);
-    } catch (error) {
-      if (error instanceof BacktestStateError) throw error;
-      invalidState('Stored ledger entry is invalid.');
-    }
-    if (ids.has(entry.entryId)) {
-      invalidState('Ledger entry IDs must be unique.', {
-        entryId: entry.entryId,
-      });
-    }
-    if (
-      previous !== undefined &&
-      Temporal.Instant.compare(entry.occurredAt, previous.occurredAt) < 0
-    ) {
-      throw new BacktestStateError(
-        'EVENT_ORDER_VIOLATION',
-        'Stored ledger entries must be chronological.',
-      );
-    }
-    result.push(entry);
-    ids.add(entry.entryId);
-    previous = entry;
-  }
-  const first = (result as [LedgerEntry, ...LedgerEntry[]])[0];
+function assertLedgerInitialization(
+  ledger: BacktestLedger,
+  backtestId: string,
+  policy: RiskPolicyVersion,
+): void {
+  const first = ledger[0];
+  if (first === undefined) invalidState('Portfolio ledger must not be empty.');
   const firstCash = first.postings[0];
   const firstCapital = first.postings[1];
   if (
@@ -990,18 +970,38 @@ function snapshotLedger(value: unknown, backtestId: string): BacktestLedger {
     first.fxSnapshotVersion !== null ||
     first.postings.length !== 2 ||
     firstCash?.account !== 'CASH' ||
-    firstCash.amount !== '1000' ||
+    !equalDecimal(firstCash.amount, policy.initialCapital) ||
     firstCapital?.account !== 'CAPITAL' ||
-    firstCapital.amount !== '-1000'
+    !equalDecimal(firstCapital.amount, negate(policy.initialCapital))
   ) {
     invalidState('Portfolio ledger initialization is invalid.');
   }
-  for (const entry of result.slice(1)) {
-    if (entry.postings.some(({ account }) => account === 'CAPITAL')) {
-      invalidState('CAPITAL may only be posted during initialization.');
+  if (validatedLedgerHasSubsequentCapital(ledger) === true) {
+    invalidState('CAPITAL may only be posted during initialization.');
+  }
+}
+
+function snapshotLedger(
+  value: unknown,
+  backtestId: string,
+  policy: RiskPolicyVersion,
+): BacktestLedger {
+  if (typeof value === 'object' && value !== null) {
+    const trusted = value as BacktestLedger;
+    if (validatedLedgerCash(trusted) !== undefined) {
+      assertLedgerInitialization(trusted, backtestId, policy);
+      return trusted;
     }
   }
-  return Object.freeze(result);
+  let ledger: BacktestLedger;
+  try {
+    ledger = auditBacktestLedger(value, MAX_LEDGER_ENTRIES);
+  } catch (error) {
+    if (error instanceof BacktestStateError) throw error;
+    invalidState('Stored ledger entry is invalid.');
+  }
+  assertLedgerInitialization(ledger, backtestId, policy);
+  return ledger;
 }
 
 function riskGroupExposure(
@@ -1052,13 +1052,8 @@ function calculateAggregates(
   intents: readonly BacktestIntentState[],
   ledger: BacktestLedger,
 ): AggregateValues {
-  const cash = aggregateSum(
-    ledger.flatMap(({ postings }) =>
-      postings
-        .filter(({ account }) => account === 'CASH')
-        .map(({ amount }) => amount),
-    ),
-  );
+  // snapshotLedger and appendLedgerEntry register the exact running cash total.
+  const cash = validatedLedgerCash(ledger) as DecimalString;
   const unrealizedPnl = aggregateSum(
     positions.map(({ unrealizedPnl: amount }) => amount),
   );
@@ -1086,7 +1081,7 @@ function calculateAggregates(
   ]);
   const sizingEquity = calculateSizingEquity(
     createRiskAccountState({
-      accountCurrency: 'EUR',
+      accountCurrency: policy.accountCurrency,
       realizedEquity: cash,
       unrealizedPnl,
       availableFunds,
@@ -1141,6 +1136,8 @@ function assertRiskGroupExposure(
 }
 
 function snapshotState(value: BacktestPortfolioState): StateParts {
+  const trusted = VALIDATED_STATES.get(value);
+  if (trusted !== undefined) return trusted;
   const raw = snapshotSelectedOwn(value, 'state', STATE_FIELDS);
   const backtestId = nonblank(
     readRequiredOwn(raw, 'backtestId', 'state.backtestId'),
@@ -1201,6 +1198,7 @@ function snapshotState(value: BacktestPortfolioState): StateParts {
   const ledger = snapshotLedger(
     readRequiredOwn(raw, 'ledger', 'state.ledger'),
     backtestId,
+    policy,
   );
   const aggregates = calculateAggregates(
     policy,
@@ -1510,13 +1508,13 @@ function assertStateCausality(
       `dailySnapshots[${String(index)}].recordedAt`,
     );
   }
-  for (const [index, entry] of ledger.entries()) {
-    assertNotAfterStateClock(
-      entry.occurredAt,
-      clock,
-      `ledger[${String(index)}].occurredAt`,
-    );
-  }
+  // Non-empty ledgers are registered by snapshotLedger before reconciliation.
+  const lastLedgerTime = validatedLedgerLastOccurredAt(ledger) as InstantString;
+  assertNotAfterStateClock(
+    lastLedgerTime,
+    clock,
+    `ledger[${String(ledger.length - 1)}].occurredAt`,
+  );
 }
 
 function validateCashEntry(
@@ -1678,7 +1676,7 @@ function assembleState(
     processedEventCount,
     values.lastClockKey,
   );
-  return Object.freeze({
+  const result = Object.freeze({
     backtestId: base.backtestId,
     runCreatedAt: base.runCreatedAt,
     riskPolicyUseMode: 'HISTORICAL_RESEARCH',
@@ -1710,6 +1708,26 @@ function assembleState(
     processedEventCount,
     lastClockKey: values.lastClockKey,
   });
+  VALIDATED_STATES.set(
+    result,
+    Object.freeze({
+      backtestId: base.backtestId,
+      runCreatedAt: base.runCreatedAt,
+      riskPolicyUseAt: base.riskPolicyUseAt,
+      policy: base.policy,
+      operatingStatus: values.operatingStatus,
+      dailyLoss: base.dailyLoss,
+      drawdownPct: base.drawdownPct,
+      positions,
+      activeEntryIntents,
+      activeContractByInstrument: values.activeContractByInstrument,
+      dailySnapshots: values.dailySnapshots,
+      ledger: values.ledger,
+      processedEventCount,
+      lastClockKey: values.lastClockKey,
+    }),
+  );
+  return result;
 }
 
 export function reduceBacktestPortfolio(
@@ -1771,6 +1789,13 @@ export function reduceBacktestPortfolio(
         )
       ) {
         invalidState('Entry intent identity is already active.');
+      }
+      if (intents.length >= MAX_PORTFOLIO_ITEMS) {
+        limit(
+          `activeEntryIntents exceeds ${String(MAX_PORTFOLIO_ITEMS)} items.`,
+          'activeEntryIntents',
+          intents.length + 1,
+        );
       }
       intents.push(intent);
       break;
@@ -1873,6 +1898,13 @@ export function reduceBacktestPortfolio(
       intents = intents.filter(
         ({ executionIntent }) => executionIntent.intentId !== intentId,
       );
+      if (positions.length >= MAX_PORTFOLIO_ITEMS) {
+        limit(
+          `positions exceeds ${String(MAX_PORTFOLIO_ITEMS)} items.`,
+          'positions',
+          positions.length + 1,
+        );
+      }
       positions.push(position);
       break;
     }

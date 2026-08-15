@@ -392,7 +392,49 @@ describe('append-only ledger', () => {
     expect(initial).toHaveLength(1);
     expect(appended).toHaveLength(2);
     expect(appended[0]).toEqual(initial[0]);
+    expect(appended[0]).toBe(initial[0]);
     expect(Object.isFrozen(appended)).toBe(true);
+
+    const sibling = appendLedgerEntry(
+      initial,
+      ledgerEntryInput({
+        entryId: 'cost:sibling',
+        eventId: 'sibling',
+        occurredAt: '2026-08-14T08:00:00Z',
+      }) as never,
+    );
+    expect(sibling[0]).toBe(initial[0]);
+    expect(sibling[1]?.entryId).toBe('cost:sibling');
+  });
+
+  it('can initialize an independently audited empty journal', async () => {
+    const { appendLedgerEntry } = await import('./ledger.js');
+
+    const ledger = appendLedgerEntry([], ledgerEntryInput() as never);
+
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.entryId).toBe('cost:fill-1');
+  });
+
+  it('keeps cached cash unchanged for a balanced non-cash entry', async () => {
+    const { appendLedgerEntry, createInitialLedger, validatedLedgerCash } =
+      await import('./ledger.js');
+    const initial = createInitialLedger({
+      backtestId: 'BT-1',
+      runCreatedAt: '2026-08-14T08:00:00Z',
+    });
+
+    const appended = appendLedgerEntry(
+      initial,
+      ledgerEntryInput({
+        postings: [
+          { account: 'COSTS', amount: '1' },
+          { account: 'PNL_CLEARING', amount: '-1' },
+        ],
+      }) as never,
+    );
+
+    expect(validatedLedgerCash(appended)).toBe('1000');
   });
 
   it('rejects duplicate entry IDs and chronology regression', async () => {

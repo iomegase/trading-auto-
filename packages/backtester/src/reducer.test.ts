@@ -153,6 +153,23 @@ describe('reduceBacktestPortfolio lifecycle', () => {
     expect(opened.ledger).toHaveLength(2);
   });
 
+  it('reuses validated immutable state collections across transitions', async () => {
+    const opened = await stateWithPosition();
+    const next = await reduce(opened, {
+      type: 'SET_ENTRY_CAPACITY',
+      event: event(
+        'DATA_AVAILABLE',
+        'trusted-state-next',
+        '2026-08-14T10:00:00Z',
+      ),
+      available: true,
+    });
+
+    expect(next.positions[0]).toBe(opened.positions[0]);
+    expect(next.ledger[0]).toBe(opened.ledger[0]);
+    expect(next.ledger[1]).toBe(opened.ledger[1]);
+  });
+
   it('revalues without cash movement and applies asymmetric sizing', async () => {
     const opened = await stateWithPosition();
     const gain = await reduce(opened, {
@@ -363,6 +380,13 @@ describe('reduceBacktestPortfolio lifecycle', () => {
 });
 
 describe('reduceBacktestPortfolio invariants', () => {
+  it('keeps builder intent and risk-decision provenance independent', () => {
+    const position = buildExecutionPosition({ intentId: 'OTHER' });
+
+    expect(position.intentId).toBe('OTHER');
+    expect(position.riskDecisionId).toBe('RISK-1');
+  });
+
   it('rejects clock regression', async () => {
     const registered = await stateWithIntent();
     await expect(
@@ -1556,6 +1580,10 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
 
   it('rejects invalid stored time provenance and event-count overflow', async () => {
     const initialized = initialState();
+    await expect(
+      probe({ ...initialized, ledger: 1 } as unknown as BacktestPortfolioState),
+    ).rejects.toMatchObject({ code: 'INVALID_BACKTEST_STATE' });
+
     const initialEntry = initialized.ledger[0];
     if (initialEntry === undefined) throw new Error('Missing initial ledger.');
     const forgedLedgerTime = {
@@ -1592,6 +1620,90 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
 
   it('refuses to grow bounded state collections beyond their exact cap', async () => {
     const initialized = initialState();
+    const activeEntryIntents = Array.from({ length: 1_000 }, (_, index) => {
+      const suffix = String(index).padStart(4, '0');
+      return buildIntentState({
+        executionIntent: buildExecutionIntent({
+          intentId: `INTENT-${suffix}`,
+          riskDecisionId: `RISK-${suffix}`,
+          instrumentId: `INTENT-PRODUCT-${suffix}`,
+          contractId: `INTENT-CONTRACT-${suffix}`,
+        }),
+        reservedMargin: '0',
+        reservedOpenRisk: '0',
+        reservedGrossExposure: '0',
+      });
+    });
+    await expect(
+      reduce(
+        {
+          ...initialized,
+          activeEntryIntents,
+        },
+        {
+          type: 'REGISTER_INTENT',
+          event: event('SIGNAL_DECISION', 'intent-overflow'),
+          intent: buildIntentState({
+            reservedMargin: '0',
+            reservedOpenRisk: '0',
+            reservedGrossExposure: '0',
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'BACKTEST_LIMIT_EXCEEDED' });
+
+    const positions = Array.from({ length: 1_000 }, (_, index) => {
+      const suffix = String(index).padStart(4, '0');
+      const executionPosition = buildExecutionPosition({
+        positionId: `POSITION-${suffix}`,
+        intent: buildExecutionIntent({
+          intentId: `POSITION-INTENT-${suffix}`,
+          riskDecisionId: `POSITION-RISK-${suffix}`,
+          instrumentId: `POSITION-PRODUCT-${suffix}`,
+          contractId: `POSITION-CONTRACT-${suffix}`,
+        }),
+      });
+      return buildPositionState({
+        executionPosition,
+        riskPosition: buildRiskPosition(executionPosition, {
+          remainingOpenRisk: '0',
+          margin: '0',
+          grossExposure: '0',
+        }),
+      });
+    });
+    const overflowIntent = buildIntentState({
+      reservedMargin: '0',
+      reservedOpenRisk: '0',
+      reservedGrossExposure: '0',
+    });
+    await expect(
+      reduce(
+        {
+          ...initialized,
+          positions,
+          activeEntryIntents: [overflowIntent],
+          processedEventCount: 1,
+          lastClockKey: '2026-08-14T09:00:00Z|00|positions-ready',
+        },
+        {
+          type: 'OPEN_POSITION',
+          event: event(
+            'OPEN_ENTRY',
+            'position-overflow',
+            '2026-08-14T10:00:00Z',
+          ),
+          intentId: 'INTENT-1',
+          position: buildPositionState(),
+          cashChange: '-2',
+          ledgerEntry: {
+            ...ledgerEntry('position-overflow', '-2', 'COSTS'),
+            occurredAt: '2026-08-14T10:00:00Z',
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'BACKTEST_LIMIT_EXCEEDED' });
+
     const activeContractByInstrument = Object.fromEntries(
       Array.from({ length: 256 }, (_, index) => [
         `PRODUCT-${String(index).padStart(3, '0')}`,

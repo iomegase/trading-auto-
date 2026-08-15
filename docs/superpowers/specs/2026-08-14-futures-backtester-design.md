@@ -164,8 +164,10 @@ Every event has:
 - a deeply immutable payload.
 
 The semantic identifier is derived from logical identity, not from array
-position. Duplicate identities with contradictory payloads invalidate the
-dataset. Exact duplicates are rejected rather than silently deduplicated.
+position. Among causally eligible events, duplicate identities with
+contradictory payloads invalidate the dataset. Exact eligible duplicates are
+rejected rather than silently deduplicated; events after `endAt` are ignored
+before semantic-identity inspection.
 
 The clock sorts by:
 

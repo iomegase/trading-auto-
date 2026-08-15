@@ -93,10 +93,11 @@ approuvée séparément.
 ```
 
 L'identité sémantique tranche ensuite par comparaison bytewise. Une collision
-d'identité invalide le dataset. Une donnée située après `endAt` est écartée
-après lecture de son seul `availableAt` : ses autres champs et son payload ne
-sont jamais consultés. Ajouter un événement futur hostile ne change donc pas
-l'état obtenu à l'instant évalué.
+d'identité entre événements causalement éligibles invalide le dataset. Une
+donnée située après `endAt` est écartée après lecture de son seul `availableAt` :
+ses autres champs, son identité sémantique et son payload ne sont jamais
+consultés. Ajouter un événement futur hostile ne change donc pas l'état obtenu à
+l'instant évalué.
 
 Le reducer contrôle la monotonie des clés par comparaison d'instants réels,
 pas par ordre lexical. Il réconcilie aussi la provenance instrument/contrat de
@@ -178,8 +179,8 @@ pnpm check
 git diff --check
 ```
 
-Au 15 août 2026, `pnpm check` exécute 41 fichiers et 1 264 tests. La suite
-ciblée du Backtester exécute 232 tests et couvre exactement 100 % des
+Au 15 août 2026, `pnpm check` exécute 41 fichiers et 1 269 tests. La suite
+ciblée du Backtester exécute 237 tests et couvre exactement 100 % des
 statements, branches, fonctions et lignes de production du package. La
 frontière ESM compilée est comparée à la liste exacte des dix exports ci-dessus.
 

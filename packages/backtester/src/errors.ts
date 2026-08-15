@@ -33,7 +33,14 @@ function cloneDetailArray(
 
   // A real Array has a non-configurable own data `length`; Proxy invariants
   // force the same descriptor or throw in the guarded call above.
-  const length = (lengthDescriptor as { readonly value: number }).value;
+  const length = (lengthDescriptor as { readonly value: unknown }).value;
+  if (
+    typeof length !== 'number' ||
+    !Number.isSafeInteger(length) ||
+    length < 0
+  ) {
+    return UNREADABLE_DETAIL;
+  }
   if (length > MAX_DETAIL_ARRAY_ITEMS) {
     return TRUNCATED_DETAIL;
   }

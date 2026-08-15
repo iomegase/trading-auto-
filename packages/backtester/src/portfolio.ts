@@ -208,10 +208,10 @@ export function snapshotRiskPolicy(value: unknown): RiskPolicyVersion {
 function initialSizingEquity(policy: RiskPolicyVersion): DecimalString {
   return calculateSizingEquity(
     createRiskAccountState({
-      accountCurrency: 'EUR',
-      realizedEquity: '1000',
+      accountCurrency: policy.accountCurrency,
+      realizedEquity: policy.initialCapital,
       unrealizedPnl: '0',
-      availableFunds: '1000',
+      availableFunds: policy.initialCapital,
       usedMargin: '0',
       grossExposure: '0',
       openRisk: '0',

@@ -143,6 +143,7 @@ export interface ExecutionPositionOverrides {
   readonly instrumentId?: string;
   readonly contractId?: string;
   readonly intentId?: string;
+  readonly riskDecisionId?: string;
   readonly fillPrice?: string;
   readonly occurredAt?: string;
   readonly entryCostAccountCurrency?: string;
@@ -160,7 +161,7 @@ export function buildExecutionPosition(
       instrumentId: overrides.instrumentId ?? 'FDXS',
       contractId: overrides.contractId ?? 'FDXS-202609',
       intentId: overrides.intentId ?? 'INTENT-1',
-      riskDecisionId: `RISK-${overrides.intentId ?? '1'}`,
+      riskDecisionId: overrides.riskDecisionId ?? 'RISK-1',
     });
   const fillPrice = asDecimalString(overrides.fillPrice ?? '100');
   const occurredAt = overrides.occurredAt ?? '2026-08-14T09:00:00Z';
