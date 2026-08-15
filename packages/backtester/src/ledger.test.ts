@@ -408,12 +408,28 @@ describe('append-only ledger', () => {
   });
 
   it('can initialize an independently audited empty journal', async () => {
-    const { appendLedgerEntry } = await import('./ledger.js');
+    const { appendLedgerEntry, validatedLedgerHasSubsequentCapital } =
+      await import('./ledger.js');
 
     const ledger = appendLedgerEntry([], ledgerEntryInput() as never);
 
     expect(ledger).toHaveLength(1);
     expect(ledger[0]?.entryId).toBe('cost:fill-1');
+    expect(validatedLedgerHasSubsequentCapital(ledger)).toBe(false);
+
+    const initialized = appendLedgerEntry(
+      [],
+      ledgerEntryInput({
+        entryId: 'initialization:BT-1',
+        eventId: 'run:BT-1:initialization',
+        description: 'Initial capital',
+        postings: [
+          { account: 'CASH', amount: '1000' },
+          { account: 'CAPITAL', amount: '-1000' },
+        ],
+      }) as never,
+    );
+    expect(validatedLedgerHasSubsequentCapital(initialized)).toBe(false);
   });
 
   it('keeps cached cash unchanged for a balanced non-cash entry', async () => {

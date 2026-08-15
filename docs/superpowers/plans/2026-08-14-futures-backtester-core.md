@@ -1026,7 +1026,6 @@ baseline 1,032 tests.
 **Files:**
 - Create: `docs/milestones/futures-backtester-core.md`
 - Modify: `README.md`
-- Modify: `design.md`
 - Modify: `docs/superpowers/specs/2026-08-14-futures-backtester-design.md`
 
 - [ ] **Step 1: Write the release note**

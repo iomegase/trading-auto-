@@ -423,7 +423,8 @@ export function appendLedgerEntry(
           : decimalSum([trusted.cash, cashPosting.amount]),
       hasCapitalAfterInitialization:
         trusted.hasCapitalAfterInitialization ||
-        appended.postings.some(({ account }) => account === 'CAPITAL'),
+        (ledger.length > 0 &&
+          appended.postings.some(({ account }) => account === 'CAPITAL')),
       lastOccurredAt: appended.occurredAt,
       lineage,
     });

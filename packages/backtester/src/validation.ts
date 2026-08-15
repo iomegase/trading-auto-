@@ -199,7 +199,18 @@ export function snapshotDenseArray(
   }
   // Every real Array has a non-configurable own data `length`; Proxy invariants
   // force the same descriptor or throw in the guarded call above.
-  const length = (lengthDescriptor as { readonly value: number }).value;
+  const length = (lengthDescriptor as { readonly value: unknown }).value;
+  if (
+    typeof length !== 'number' ||
+    !Number.isSafeInteger(length) ||
+    length < 0
+  ) {
+    invalid(
+      `${field}.length must be a nonnegative safe integer.`,
+      `${field}.length`,
+      length,
+    );
+  }
   if (length > maximumLength) {
     limit(`${field} exceeds ${String(maximumLength)} items.`, field, length);
   }

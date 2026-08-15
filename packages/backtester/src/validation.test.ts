@@ -239,6 +239,28 @@ describe('dense array snapshots', () => {
     expectInputError(() => snapshotDenseArray(itemTrap, 'events', 1));
   });
 
+  it.each([Number.NaN, -1, 1.5])(
+    'maps an invalid Proxy-reported array length %s to a typed error',
+    async (length) => {
+      const { snapshotDenseArray } = await import('./validation.js');
+      const input = new Proxy(['value'], {
+        getOwnPropertyDescriptor(target, property) {
+          if (property === 'length') {
+            return {
+              configurable: false,
+              enumerable: false,
+              value: length,
+              writable: true,
+            };
+          }
+          return Reflect.getOwnPropertyDescriptor(target, property);
+        },
+      });
+
+      expectInputError(() => snapshotDenseArray(input, 'events', 1));
+    },
+  );
+
   it('maps a revoked array and rejects an invalid configured limit', async () => {
     const { snapshotDenseArray } = await import('./validation.js');
     const revoked = Proxy.revocable([], {});
