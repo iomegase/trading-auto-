@@ -183,8 +183,8 @@ pnpm check
 git diff --check
 ```
 
-Au 15 août 2026, `pnpm check` exécute 41 fichiers et 1 277 tests. La suite
-ciblée du Backtester exécute 245 tests et couvre exactement 100 % des
+Au 15 août 2026, `pnpm check` exécute 41 fichiers et 1 283 tests. La suite
+ciblée du Backtester exécute 251 tests et couvre exactement 100 % des
 statements, branches, fonctions et lignes de production du package. La
 frontière ESM compilée est comparée à la liste exacte des dix exports ci-dessus.
 

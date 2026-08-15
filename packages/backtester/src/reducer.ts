@@ -24,7 +24,6 @@ import { clockKeyOf, compareClockKeys } from './clock.js';
 import {
   asBacktestDecimal,
   asBacktestNonnegativeDecimal,
-  asBacktestPositiveDecimal,
   decimalCompare,
   decimalSum,
 } from './decimal.js';
@@ -386,6 +385,18 @@ function decimalForMode(
   }
 }
 
+function positiveForMode(
+  value: unknown,
+  field: string,
+  mode: ValidationMode,
+): DecimalString {
+  const decimal = decimalForMode(value, field, mode);
+  if (decimalCompare(decimal, '0') <= 0) {
+    validationFailure(mode, `${field} must be positive.`, field, value);
+  }
+  return decimal;
+}
+
 function negate(value: DecimalString): DecimalString {
   if (value === '0') return value;
   return asBacktestDecimal(`-${value}`, 'value');
@@ -555,13 +566,15 @@ function snapshotOpenPosition(
     validationFailure(mode, `${field} timestamps are inconsistent.`, field);
   }
 
-  const economicEntryPrice = asBacktestPositiveDecimal(
+  const economicEntryPrice = positiveForMode(
     readRequiredOwn(raw, 'economicEntryPrice', `${field}.economicEntryPrice`),
     `${field}.economicEntryPrice`,
+    mode,
   );
-  const protectiveStopPrice = asBacktestPositiveDecimal(
+  const protectiveStopPrice = positiveForMode(
     readRequiredOwn(raw, 'protectiveStopPrice', `${field}.protectiveStopPrice`),
     `${field}.protectiveStopPrice`,
+    mode,
   );
   if (
     (direction === 'LONG' &&
@@ -615,31 +628,36 @@ function snapshotOpenPosition(
     ),
     timeframe: '1h',
     direction,
-    quantity: asBacktestPositiveDecimal(
+    quantity: positiveForMode(
       readRequiredOwn(raw, 'quantity', `${field}.quantity`),
       `${field}.quantity`,
+      mode,
     ),
     economicEntryPrice,
-    accountingBasisPrice: asBacktestPositiveDecimal(
+    accountingBasisPrice: positiveForMode(
       readRequiredOwn(
         raw,
         'accountingBasisPrice',
         `${field}.accountingBasisPrice`,
       ),
       `${field}.accountingBasisPrice`,
+      mode,
     ),
     protectiveStopPrice,
-    entryCostAccountCurrency: asBacktestNonnegativeDecimal(
+    entryCostAccountCurrency: decimalForMode(
       readRequiredOwn(
         raw,
         'entryCostAccountCurrency',
         `${field}.entryCostAccountCurrency`,
       ),
       `${field}.entryCostAccountCurrency`,
+      mode,
+      true,
     ),
-    tickSize: asBacktestPositiveDecimal(
+    tickSize: positiveForMode(
       readRequiredOwn(raw, 'tickSize', `${field}.tickSize`),
       `${field}.tickSize`,
+      mode,
     ),
     signalCloseTime,
     signalDecisionAt,
@@ -1894,10 +1912,6 @@ export function reduceBacktestPortfolio(
       ) {
         invalidState('Entry cash change must equal the exact execution cost.');
       }
-      ledger = appendLedgerEntry(ledger, accounting.entry);
-      intents = intents.filter(
-        ({ executionIntent }) => executionIntent.intentId !== intentId,
-      );
       if (positions.length >= MAX_PORTFOLIO_ITEMS) {
         limit(
           `positions exceeds ${String(MAX_PORTFOLIO_ITEMS)} items.`,
@@ -1905,6 +1919,10 @@ export function reduceBacktestPortfolio(
           positions.length + 1,
         );
       }
+      ledger = appendLedgerEntry(ledger, accounting.entry);
+      intents = intents.filter(
+        ({ executionIntent }) => executionIntent.intentId !== intentId,
+      );
       positions.push(position);
       break;
     }

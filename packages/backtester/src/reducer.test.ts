@@ -837,6 +837,36 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
     await expect(probe(forged)).rejects.toBeInstanceOf(BacktestStateError);
   });
 
+  it.each([
+    ['quantity', '-1'],
+    ['economicEntryPrice', '0'],
+    ['accountingBasisPrice', '0'],
+    ['protectiveStopPrice', '0'],
+    ['entryCostAccountCurrency', '-1'],
+    ['tickSize', '0'],
+  ])(
+    'maps invalid stored execution-position decimal %s to a state error',
+    async (field, value) => {
+      const opened = await stateWithPosition();
+      const current = opened.positions[0];
+      if (current === undefined) throw new Error('Missing position fixture.');
+      const forged = {
+        ...opened,
+        positions: [
+          {
+            ...current,
+            executionPosition: {
+              ...current.executionPosition,
+              [field]: value,
+            },
+          },
+        ],
+      } as unknown as BacktestPortfolioState;
+
+      await expect(probe(forged)).rejects.toBeInstanceOf(BacktestStateError);
+    },
+  );
+
   it('rejects malformed, duplicate, regressing, and non-initial ledgers', async () => {
     const opened = await stateWithPosition();
     const initialization = opened.ledger[0];
@@ -1697,7 +1727,12 @@ describe('reduceBacktestPortfolio hostile state and boundary hardening', () => {
           position: buildPositionState(),
           cashChange: '-2',
           ledgerEntry: {
-            ...ledgerEntry('position-overflow', '-2', 'COSTS'),
+            ...ledgerEntry(
+              'position-overflow',
+              '-2',
+              'COSTS',
+              'initialization:BT-1',
+            ),
             occurredAt: '2026-08-14T10:00:00Z',
           },
         },
