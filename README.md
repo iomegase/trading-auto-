@@ -38,6 +38,9 @@ la compilation de tous les packages.
 - `@trading-auto/execution` : simulateur causal d'exécution futures sur barres
   H1, avec sessions versionnées, revalidation du risque à l'ouverture, stops,
   settlements et roll explicite entre contrats datés.
+- `@trading-auto/backtester` : kernel séquentiel causal avec horloge
+  déterministe, ledger équilibré et état de portefeuille immuable. L'orchestration
+  stratégie/risque/exécution reste différée à PR 2C.2.
 - `@trading-auto/test-helpers` : construction de fixtures validées pour les
   tests.
 
@@ -74,21 +77,24 @@ local du fournisseur reste conservé séparément dans `sourceTimestamp`.
 ## Périmètre actuel
 
 Le périmètre actuel réunit le noyau Ichimoku causal de Milestone 1, le moteur de
-risque futures de Milestone 2A et le simulateur d'exécution sur barres H1 de
-Milestone 2B. Le simulateur consomme des contrats datés et des horaires fournis,
-revalide le risque au prochain open disponible, puis modélise de façon
-conservatrice les stops, les sorties de tendance différées, settlements et
-rollovers. Tout ce périmètre reste
-`RESEARCH_ONLY` et ne place aucun ordre réel.
+risque futures de Milestone 2A, le simulateur d'exécution sur barres H1 de
+Milestone 2B et le kernel de portefeuille/comptabilité de PR 2C.1. Le
+simulateur consomme des contrats datés et des horaires fournis, revalide le
+risque au prochain open disponible, puis modélise de façon conservatrice les
+stops, les sorties de tendance différées, settlements et rollovers. Le kernel
+2C.1 ordonne les événements et réconcilie le ledger, mais ne lance pas encore un
+run complet. Tout ce périmètre reste `RESEARCH_ONLY` et ne place aucun ordre
+réel.
 
 Restent différés l'acquisition de calendriers et données broker réels, le
-resampling H1→H4, l'horloge de portefeuille et le backtest séquentiel de
-Milestone 2C, les statistiques, l'interface, la persistance, le paper trading,
+resampling H1→H4, l'orchestration complète du backtest en PR 2C.2, le résultat
+et les statistiques en PR 2C.3, l'interface, la persistance, le paper trading,
 la connexion broker et toute exécution live. L'absence de données minute, tick,
 carnet d'ordres et fills partiels interdit d'interpréter les fills simulés comme
 une preuve de qualité d'exécution réelle.
 
 Voir les bilans de [Milestone 1](docs/milestones/core-research.md) et de
 [Milestone 2A](docs/milestones/futures-risk.md), de
-[Milestone 2B](docs/milestones/futures-execution.md), ainsi que le
+[Milestone 2B](docs/milestones/futures-execution.md), de
+[Milestone 2C.1](docs/milestones/futures-backtester-core.md), ainsi que le
 [design Futures Risk, Execution and Backtest](docs/superpowers/specs/2026-08-10-futures-risk-execution-backtest-design.md).

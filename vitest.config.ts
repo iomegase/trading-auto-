@@ -14,6 +14,7 @@ export default defineConfig({
       ),
       '@trading-auto/risk': source('./packages/risk/src/index.ts'),
       '@trading-auto/execution': source('./packages/execution/src/index.ts'),
+      '@trading-auto/backtester': source('./packages/backtester/src/index.ts'),
       '@trading-auto/test-helpers': source(
         './packages/test-helpers/src/index.ts',
       ),
