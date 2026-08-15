@@ -1,6 +1,6 @@
 # Sequential Futures Backtester Design
 
-Status: APPROVED_FOR_PLANNING
+Status: PR 2C.1 implemented; PR 2C.2 and PR 2C.3 remain planned
 
 Date: 2026-08-14
 
