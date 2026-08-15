@@ -148,6 +148,29 @@ export function snapshotPlainRecord(
   return Object.freeze(result);
 }
 
+export function snapshotSelectedOwn(
+  value: unknown,
+  field: string,
+  properties: readonly string[],
+): Readonly<Record<string, unknown>> {
+  plainObjectKeys(value, field);
+  const input = value as Readonly<Record<string, unknown>>;
+  const result: Record<string, unknown> = Object.create(null) as Record<
+    string,
+    unknown
+  >;
+
+  for (const property of properties) {
+    Object.defineProperty(result, property, {
+      configurable: false,
+      enumerable: true,
+      value: readRequiredOwn(input, property, `${field}.${property}`),
+      writable: false,
+    });
+  }
+  return Object.freeze(result);
+}
+
 export function snapshotDenseArray(
   value: unknown,
   field: string,
