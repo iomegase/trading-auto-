@@ -971,16 +971,16 @@ apply internal transitions, and assert:
 `src/index.ts` must export these runtime values and no internal helper:
 
 ```text
+BACKTEST_EVENT_PRIORITY
+BACKTEST_EVENT_TYPES
 BacktestInputError
 BacktestStateError
-BACKTEST_EVENT_TYPES
-BACKTEST_EVENT_PRIORITY
-createBacktestEvent
-orderBacktestEvents
-createLedgerEntry
-createInitialLedger
 appendLedgerEntry
+createBacktestEvent
 createBacktestPortfolioState
+createInitialLedger
+createLedgerEntry
+orderBacktestEvents
 ```
 
 It may export the associated public TypeScript types. It must not export the
@@ -1099,7 +1099,7 @@ deployment code in the branch.
 - [ ] **Step 5: Commit documentation**
 
 ```bash
-git add README.md design.md docs/milestones/futures-backtester-core.md docs/superpowers/specs/2026-08-14-futures-backtester-design.md
+git add README.md docs/milestones/futures-backtester-core.md docs/superpowers/specs/2026-08-14-futures-backtester-design.md
 git commit -m "docs: document futures backtester core"
 ```
 

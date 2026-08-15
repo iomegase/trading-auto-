@@ -142,8 +142,14 @@ describe('backtest event contract', () => {
     ['semanticId', 'event:😀'],
     ['semanticId', 1],
     ['instrumentId', ''],
+    ['instrumentId', ' FDXS'],
+    ['instrumentId', 'FDXS '],
     ['contractId', '   '],
+    ['contractId', ' FDXS-202609'],
+    ['contractId', 'FDXS-202609 '],
     ['version', 1],
+    ['version', ' DATASET_1'],
+    ['version', 'DATASET_1 '],
   ])('rejects invalid %s value %#', async (field, value) => {
     const { createBacktestEvent } = await import('./event.js');
 

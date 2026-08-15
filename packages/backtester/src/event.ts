@@ -87,8 +87,16 @@ function invalid(message: string, field: string, value?: unknown): never {
 }
 
 function nonblank(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    invalid(`${field} must be a nonblank string.`, field, value);
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.trim() !== value
+  ) {
+    invalid(
+      `${field} must be a nonblank string without surrounding whitespace.`,
+      field,
+      value,
+    );
   }
   return value;
 }
