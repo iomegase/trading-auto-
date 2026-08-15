@@ -430,6 +430,7 @@ describe('deterministic backtest clock', () => {
     '2026-08-14T09:00:00Z||event',
     '2026-08-14T09:00:00Z|09|event',
     '2026-08-14T09:00:00Z|00|',
+    '2026-08-14T09:00:00Z|00|event:é',
     'not-an-instant|00|event',
   ])('rejects malformed clock key %j', async (clockKey) => {
     const { compareClockKeys } = await import('./clock.js');

@@ -77,6 +77,7 @@ const EVENT_INPUT_FIELDS_AFTER_AVAILABLE_AT = Object.freeze([
   'version',
   'payload',
 ] as const);
+const PRINTABLE_ASCII_SEMANTIC_ID = /^[\x21-\x7e]+$/;
 
 function invalid(message: string, field: string, value?: unknown): never {
   throw new BacktestInputError('INVALID_BACKTEST_INPUT', message, {
@@ -88,6 +89,21 @@ function invalid(message: string, field: string, value?: unknown): never {
 function nonblank(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     invalid(`${field} must be a nonblank string.`, field, value);
+  }
+  return value;
+}
+
+export function isBacktestSemanticId(value: unknown): value is string {
+  return typeof value === 'string' && PRINTABLE_ASCII_SEMANTIC_ID.test(value);
+}
+
+function semanticIdentifier(value: unknown): string {
+  if (!isBacktestSemanticId(value)) {
+    invalid(
+      'semanticId must contain only printable non-space US-ASCII characters.',
+      'semanticId',
+      value,
+    );
   }
   return value;
 }
@@ -121,9 +137,8 @@ function createEventFromSnapshot(
   snapshot: Readonly<Record<string, unknown>>,
   availableAt: InstantString,
 ): BacktestEvent {
-  const semanticId = nonblank(
+  const semanticId = semanticIdentifier(
     readRequiredOwn(snapshot, 'semanticId', 'semanticId'),
-    'semanticId',
   );
   const type = eventType(readRequiredOwn(snapshot, 'type', 'type'));
   const instrumentId = nullableNonblank(

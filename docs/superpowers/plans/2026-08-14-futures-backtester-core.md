@@ -24,7 +24,7 @@ It must enforce all of the following before PR 2C.2 begins:
 - no transition after initialization may post to `CAPITAL`;
 - every cash change is explained by one exactly balanced ledger entry;
 - decimals are canonical, bounded, and evaluated with a private clone unaffected by global `Decimal.set` calls;
-- event ordering is by canonical `availableAt`, fixed priority, then bytewise semantic ID, never insertion order;
+- event ordering is by canonical `availableAt`, fixed priority, then a semantic ID restricted to printable non-space US-ASCII (`0x21`-`0x7E`), for which direct code-unit order is bytewise order, never insertion order;
 - data after `endAt` is ignored before its remaining fields or payload are read;
 - state and return values are deeply immutable and JSON-compatible;
 - malformed public inputs throw typed errors rather than native `TypeError`, `RangeError`, or decimal-library errors;
@@ -204,8 +204,10 @@ expect(decimalSum(['0.1', '0.2'])).toBe('0.3');
 
 Reject scientific notation, plus signs, leading zeroes, `-0`, non-strings,
 more than 256 total digits, more than 128 fractional digits, and negative input
-for the nonnegative helper. Set global Decimal precision/exponent limits to
-hostile values inside `try/finally` and prove results are unchanged.
+for the nonnegative helper. Arithmetic results outside the same 256/128 domain
+must throw `INVALID_BACKTEST_INPUT` at the formatting boundary. Set global
+Decimal precision/exponent limits to hostile values inside `try/finally` and
+prove results are unchanged.
 
 - [ ] **Step 2: Run decimal RED, implement the private clone, run GREEN**
 
@@ -369,8 +371,9 @@ export interface BacktestEvent {
 }
 ```
 
-The semantic ID is supplied by the producing boundary and validated as a
-nonblank stable logical identity; no array index or random value is introduced.
+The semantic ID is supplied by the producing boundary and validated as a stable
+logical identity containing only printable non-space US-ASCII characters
+(`0x21`-`0x7E`); no array index or random value is introduced.
 
 - [ ] **Step 4: Run GREEN, export the stable contract, and commit**
 
@@ -408,8 +411,9 @@ Cover these exact cases:
 
 - every permutation of the nine types at one instant produces the fixed
   priority order;
-- equal time and type sort by direct code-unit comparison
-  (`a.semanticId < b.semanticId`), not `localeCompare`;
+- equal time and type sort printable non-space US-ASCII semantic IDs by direct
+  code-unit comparison (`a.semanticId < b.semanticId`), which is exactly their
+  bytewise order, not `localeCompare`;
 - offset-equivalent instants normalize before sorting;
 - exact duplicate semantic IDs reject with `DUPLICATE_EVENT`;
 - contradictory duplicate semantic IDs also reject with `DUPLICATE_EVENT`;

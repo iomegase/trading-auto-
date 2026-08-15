@@ -71,6 +71,18 @@ describe('backtester decimal primitives', () => {
     expect(decimalCompare('2', '1.999')).toBe(1);
   });
 
+  it('rejects an aggregate result outside the bounded decimal domain', async () => {
+    const { decimalSum } = await import('./decimal.js');
+    const { BacktestInputError } = await import('./errors.js');
+
+    expect(() => decimalSum(['9'.repeat(256), '1'])).toThrow(
+      BacktestInputError,
+    );
+    expect(() => decimalSum(['9'.repeat(256), '1'])).toThrow(
+      /bounded canonical decimal/,
+    );
+  });
+
   it('is isolated from mutable global Decimal configuration', async () => {
     const previous = {
       precision: Decimal.precision,

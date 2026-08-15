@@ -140,7 +140,9 @@ The input is snapshotted from own enumerable descriptors exactly once before
 business use. Sparse arrays, inherited required fields, revoked proxies,
 throwing getters, symbols where strings are required, unsupported prototypes,
 non-canonical decimals, non-canonical instants, and oversized collections are
-rejected deterministically.
+rejected deterministically. Canonical decimals have at most 256 total digits and
+128 fractional digits; an arithmetic result outside that same domain throws
+`INVALID_BACKTEST_INPUT` at its formatting boundary.
 
 Initial safety limits are:
 
@@ -157,23 +159,27 @@ indices or constructing arbitrary-precision decimals.
 
 Every event has:
 
-- a stable semantic identifier;
+- a stable semantic identifier containing only printable non-space US-ASCII
+  characters (`0x21`-`0x7E`);
 - a canonical `availableAt` instant used by the clock;
 - an event type with a fixed priority;
 - explicit instrument, contract, and version provenance where applicable;
 - a deeply immutable payload.
 
 The semantic identifier is derived from logical identity, not from array
-position. Among causally eligible events, duplicate identities with
-contradictory payloads invalidate the dataset. Exact eligible duplicates are
-rejected rather than silently deduplicated; events after `endAt` are ignored
-before semantic-identity inspection.
+position. Restricting it to printable non-space US-ASCII makes direct code-unit
+comparison exactly equal to bytewise comparison. Among causally eligible
+events, duplicate identities with contradictory payloads invalidate the
+dataset. Exact eligible duplicates are rejected rather than silently
+deduplicated; events after `endAt` are ignored before semantic-identity
+inspection.
 
 The clock sorts by:
 
 1. canonical `availableAt`;
 2. fixed event-type priority;
-3. semantic identifier using bytewise ascending comparison.
+3. printable non-space US-ASCII semantic identifier using direct ascending
+   comparison, identical to bytewise ascending comparison on that domain.
 
 It never uses incidental insertion order as a tie-breaker.
 

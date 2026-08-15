@@ -92,12 +92,13 @@ approuvée séparément.
 8 SESSION_END
 ```
 
-L'identité sémantique tranche ensuite par comparaison bytewise. Une collision
-d'identité entre événements causalement éligibles invalide le dataset. Une
-donnée située après `endAt` est écartée après lecture de son seul `availableAt` :
-ses autres champs, son identité sémantique et son payload ne sont jamais
-consultés. Ajouter un événement futur hostile ne change donc pas l'état obtenu à
-l'instant évalué.
+L'identité sémantique est limitée aux caractères US-ASCII imprimables hors
+espace (`0x21`-`0x7E`) puis tranche par comparaison directe, identique à l'ordre
+bytewise sur ce domaine. Une collision d'identité entre événements causalement
+éligibles invalide le dataset. Une donnée située après `endAt` est écartée après
+lecture de son seul `availableAt` : ses autres champs, son identité sémantique et
+son payload ne sont jamais consultés. Ajouter un événement futur hostile ne
+change donc pas l'état obtenu à l'instant évalué.
 
 Le reducer contrôle la monotonie des clés par comparaison d'instants réels,
 pas par ordre lexical. Il réconcilie aussi la provenance instrument/contrat de
@@ -160,7 +161,10 @@ Decimal. Les tableaux creux, champs hérités ou non énumérables, getters
 hostiles, traps de descripteur, proxies révoqués, cycles, casts forgés et
 mutations après appel sont rejetés ou détachés avec des erreurs stables. Les
 calculs utilisent un clone Decimal privé et restent identiques après mutation
-de la configuration globale de `decimal.js`.
+de la configuration globale de `decimal.js`. Toute somme dont le résultat
+dépasse 256 chiffres totaux ou 128 chiffres fractionnaires échoue immédiatement
+avec l'erreur typée `INVALID_BACKTEST_INPUT` au lieu de produire une valeur
+impossible à revalider.
 
 ## Vérification observée
 
@@ -179,8 +183,8 @@ pnpm check
 git diff --check
 ```
 
-Au 15 août 2026, `pnpm check` exécute 41 fichiers et 1 272 tests. La suite
-ciblée du Backtester exécute 240 tests et couvre exactement 100 % des
+Au 15 août 2026, `pnpm check` exécute 41 fichiers et 1 277 tests. La suite
+ciblée du Backtester exécute 245 tests et couvre exactement 100 % des
 statements, branches, fonctions et lignes de production du package. La
 frontière ESM compilée est comparée à la liste exacte des dix exports ci-dessus.
 

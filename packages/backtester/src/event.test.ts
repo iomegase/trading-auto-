@@ -137,6 +137,9 @@ describe('backtest event contract', () => {
   it.each([
     ['semanticId', ''],
     ['semanticId', '   '],
+    ['semanticId', 'event with space'],
+    ['semanticId', 'event:é'],
+    ['semanticId', 'event:😀'],
     ['semanticId', 1],
     ['instrumentId', ''],
     ['contractId', '   '],

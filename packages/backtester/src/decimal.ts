@@ -67,7 +67,7 @@ export function asBacktestPositiveDecimal(
 }
 
 function decimalString(value: Decimal): DecimalString {
-  return asDecimalString(value.isZero() ? '0' : value.toFixed());
+  return asBacktestDecimal(value.isZero() ? '0' : value.toFixed(), 'result');
 }
 
 export function decimalSum(values: readonly string[]): DecimalString {

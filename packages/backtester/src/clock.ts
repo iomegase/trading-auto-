@@ -4,6 +4,7 @@ import { asInstantString, type InstantString } from '@trading-auto/domain';
 import { BacktestInputError } from './errors.js';
 import {
   createBacktestEventWithAvailableAt,
+  isBacktestSemanticId,
   type BacktestEvent,
   type BacktestEventInput,
 } from './event.js';
@@ -82,7 +83,7 @@ function parseClockKey(value: string): ClockKeyParts {
     firstSeparator <= 0 ||
     secondSeparator <= firstSeparator + 1 ||
     !/^0[0-8]$/.test(priorityText) ||
-    semanticId.length === 0
+    !isBacktestSemanticId(semanticId)
   ) {
     invalid('clock key is malformed.', 'clockKey', value);
   }
