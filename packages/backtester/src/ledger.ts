@@ -213,6 +213,13 @@ function createLedgerEntryFromSnapshot(
       fxSnapshotVersion,
     );
   }
+  if (!hasFxTranslation && fxSnapshotVersion !== null) {
+    invalid(
+      'fxSnapshotVersion is only allowed for FX_TRANSLATION postings.',
+      'fxSnapshotVersion',
+      fxSnapshotVersion,
+    );
+  }
 
   return Object.freeze({
     entryId,

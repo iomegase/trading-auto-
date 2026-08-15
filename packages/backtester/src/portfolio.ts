@@ -196,7 +196,7 @@ function capturePolicy(value: unknown): RiskPolicyInput {
   return result;
 }
 
-function validatePolicy(value: unknown): RiskPolicyVersion {
+export function snapshotRiskPolicy(value: unknown): RiskPolicyVersion {
   const captured = capturePolicy(value);
   try {
     return createRiskPolicy(captured);
@@ -268,7 +268,9 @@ export function createBacktestPortfolioState(
     );
   }
 
-  const policy = validatePolicy(readRequiredOwn(snapshot, 'policy', 'policy'));
+  const policy = snapshotRiskPolicy(
+    readRequiredOwn(snapshot, 'policy', 'policy'),
+  );
   if (
     Temporal.Instant.compare(
       Temporal.Instant.from(policy.activatedAt),

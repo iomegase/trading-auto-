@@ -248,6 +248,16 @@ describe('ledger entries', () => {
     );
   });
 
+  it('rejects an FX version when no FX_TRANSLATION posting exists', async () => {
+    const { createLedgerEntry } = await import('./ledger.js');
+
+    expectInputError(() =>
+      createLedgerEntry(
+        ledgerEntryInput({ fxSnapshotVersion: 'UNUSED_FX' }) as never,
+      ),
+    );
+  });
+
   it.each([
     ['entryId', ''],
     ['eventId', '   '],

@@ -389,4 +389,53 @@ describe('deterministic backtest clock', () => {
       '2026-08-14T09:00:00Z|07|snapshot',
     );
   });
+
+  it('compares clock keys by instant, priority, then semantic identity', async () => {
+    const { compareClockKeys } = await import('./clock.js');
+
+    expect(
+      compareClockKeys(
+        '2026-08-14T09:00:00.1Z|00|a',
+        '2026-08-14T09:00:00Z|08|z',
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      compareClockKeys(
+        '2026-08-14T09:00:00Z|00|z',
+        '2026-08-14T09:00:00Z|01|a',
+      ),
+    ).toBeLessThan(0);
+    expect(
+      compareClockKeys(
+        '2026-08-14T09:00:00Z|00|a',
+        '2026-08-14T09:00:00Z|00|z',
+      ),
+    ).toBeLessThan(0);
+    expect(
+      compareClockKeys(
+        '2026-08-14T09:00:00Z|00|z',
+        '2026-08-14T09:00:00Z|00|a',
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      compareClockKeys(
+        '2026-08-14T09:00:00Z|00|same',
+        '2026-08-14T09:00:00Z|00|same',
+      ),
+    ).toBe(0);
+  });
+
+  it.each([
+    '',
+    '2026-08-14T09:00:00Z||event',
+    '2026-08-14T09:00:00Z|09|event',
+    '2026-08-14T09:00:00Z|00|',
+    'not-an-instant|00|event',
+  ])('rejects malformed clock key %j', async (clockKey) => {
+    const { compareClockKeys } = await import('./clock.js');
+
+    expectInputError(() =>
+      compareClockKeys(clockKey, '2026-08-14T09:00:00Z|00|valid'),
+    );
+  });
 });

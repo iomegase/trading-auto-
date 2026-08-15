@@ -31,6 +31,12 @@ interface OrderedEvent {
   readonly instant: Temporal.Instant;
 }
 
+interface ClockKeyParts {
+  readonly instant: Temporal.Instant;
+  readonly priority: number;
+  readonly semanticId: string;
+}
+
 function invalid(message: string, field: string, value?: unknown): never {
   throw new BacktestInputError('INVALID_BACKTEST_INPUT', message, {
     field,
@@ -64,6 +70,49 @@ function compareOrderedEvents(left: OrderedEvent, right: OrderedEvent): number {
 
 export function clockKeyOf(event: Readonly<BacktestEvent>): string {
   return `${event.availableAt}|${String(event.priority).padStart(2, '0')}|${event.semanticId}`;
+}
+
+function parseClockKey(value: string): ClockKeyParts {
+  const firstSeparator = value.indexOf('|');
+  const secondSeparator = value.indexOf('|', firstSeparator + 1);
+  const instantText = value.slice(0, firstSeparator);
+  const priorityText = value.slice(firstSeparator + 1, secondSeparator);
+  const semanticId = value.slice(secondSeparator + 1);
+  if (
+    firstSeparator <= 0 ||
+    secondSeparator <= firstSeparator + 1 ||
+    !/^0[0-8]$/.test(priorityText) ||
+    semanticId.length === 0
+  ) {
+    invalid('clock key is malformed.', 'clockKey', value);
+  }
+  try {
+    return Object.freeze({
+      instant: Temporal.Instant.from(instantText),
+      priority: Number(priorityText),
+      semanticId,
+    });
+  } catch {
+    invalid('clock key is malformed.', 'clockKey', value);
+  }
+}
+
+export function compareClockKeys(left: string, right: string): number {
+  const leftParts = parseClockKey(left);
+  const rightParts = parseClockKey(right);
+  const instantOrder = Temporal.Instant.compare(
+    leftParts.instant,
+    rightParts.instant,
+  );
+  if (instantOrder !== 0) return instantOrder;
+  if (leftParts.priority !== rightParts.priority) {
+    return leftParts.priority - rightParts.priority;
+  }
+  return leftParts.semanticId < rightParts.semanticId
+    ? -1
+    : leftParts.semanticId > rightParts.semanticId
+      ? 1
+      : 0;
 }
 
 export function orderBacktestEvents(
